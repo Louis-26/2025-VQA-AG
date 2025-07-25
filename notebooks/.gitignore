@@ -1,0 +1,21 @@
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Jupyter outputs (optional - uncomment if you don't want to track outputs)
+# *.ipynb
+
+# Temporary files
+*~
+.DS_Store
+
+# Large data files that might be created during exploration
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+
+# Plots and figures (optional - uncomment if you don't want to track generated plots)
+# *.png
+# *.jpg
+# *.pdf
+# *.svg
