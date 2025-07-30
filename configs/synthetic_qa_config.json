@@ -1,0 +1,22 @@
+{
+  "enable_template_generation": true,
+  "enable_llm_generation": false,
+  "enable_back_translation": false,
+  "min_confidence": 0.4,
+  "template_config": {
+    "question_types": [
+      "what", "who", "where", "when", "how", "why"
+    ]
+  },
+  "llm_config": {
+    "model_name": "gpt-4-vision-preview",
+    "api_key_env": "OPENAI_API_KEY",
+    "generation_prompt": "Generate 5 diverse questions about this video with accurate answers.",
+    "max_tokens": 500,
+    "temperature": 0.7
+  },
+  "backtrans_config": {
+    "captioning_model": "microsoft/git-large-coco",
+    "question_generator": "t5-base"
+  }
+}

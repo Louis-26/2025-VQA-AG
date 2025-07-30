@@ -1,0 +1,13 @@
+{
+  "enable_retrieval_grounding": true,
+  "enable_cross_verification": false,
+  "retrieval_config": {
+    "similarity_threshold": 0.7,
+    "top_k_frames": 5,
+    "embedding_model": "clip-vit-base-patch32"
+  },
+  "verification_config": {
+    "captioning_model": "microsoft/git-base-coco",
+    "consistency_threshold": 0.6
+  }
+}

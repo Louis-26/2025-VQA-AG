@@ -1,99 +1,241 @@
-# TRECVID Project Template
+# TRECVID 2025 VQA Research Framework
 
-## Overview
-
-The Video Question Answering (VQA) Challenge aims to rigorously assess the capabilities of state-of-the-art multimodal models in understanding and reasoning about video content. This repository contains resources, evaluation tools, and submission guidelines for the TRECVID 2025 VQA track.
+A flexible and research-oriented framework for the **TRECVID 2025 Video Question Answering Challenge**, designed for experimenting with advanced multimodal models, grounding techniques, and synthetic data augmentation.
 
 **Official Task Details**: https://www-nlpir.nist.gov/projects/tv2025/vqa.html
 
-## Challenge Tasks
+## 🚀 Key Features
+
+- **🔄 Flexible Model Architecture**: Easy swapping between different VQA models (ViT+T5, LLaVA, InstructBLIP, etc.)
+- **🎯 Grounding & Alignment**: Retrieval-augmented generation and cross-verification to reduce hallucination
+- **🤖 Synthetic Data Generation**: Template-based, LLM-based, and back-translation approaches for data augmentation
+- **⚙️ Configuration-Driven**: JSON-based model and pipeline configurations
+- **📊 Research-Ready**: Built for experimentation with state-of-the-art techniques
+
+## 📋 Challenge Tasks
 
 ### 1. Answer Generation (AG) Task
+Generate up to 10 ranked natural language answers for video questions.
+- **Input**: Video (~30 seconds) + Question
+- **Output**: Ranked answers with confidence scores and timing
+- **Evaluation**: NDCG, STS, METEOR, BERTScore
 
+### 2. Multiple Choice (MC) Task *(TODO)*
+Rank 4 provided answer options for video questions.
 
-### 2. Multiple Choice (MC) Task
+## 🛠️ Quick Start
 
-
-## Quick Start
-
+### Installation
 ```bash
 # Clone the repository
-git clone git@github.com:debashishc/trec-project-template.git
+git clone <your-repo-url>
 cd trec-project-template
 
 # Set up environment with uv
 uv venv
 source .venv/bin/activate
 uv pip install -e .
-
-# Run example evaluation (once evaluate pipeline is set up)
-# python evaluation/evaluate.py --task ag --submission path/to/submission.csv
 ```
 
-For detailed setup instructions, see [SETUP.md](SETUP.md).
+### Basic Usage
+```bash
+# List available model configurations
+python run_ag_task.py --list_configs
 
-## Repository Structure
+# Run Answer Generation with baseline model
+python run_ag_task.py \
+    --topics_file data/sample_topics.csv \
+    --videos_dir data/videos/ \
+    --output_file submissions/team_ag_run1.csv \
+    --model_config baseline_encoder_decoder
+
+# Run with grounding enabled (experimental)
+python run_ag_task.py \
+    --topics_file data/sample_topics.csv \
+    --videos_dir data/videos/ \
+    --output_file submissions/team_ag_run2.csv \
+    --model_config improved_encoder_decoder \
+    --enable_grounding \
+    --grounding_config configs/grounding_config.json
+```
+
+### Generate Synthetic Training Data
+```bash
+# Generate synthetic Q&A pairs for training
+python generate_synthetic_qa.py \
+    --videos_dir data/training_videos/ \
+    --output_file data/synthetic_qa_pairs.csv \
+    --pairs_per_video 5 \
+    --config_file configs/synthetic_qa_config.json
+```
+
+## 🏗️ Architecture Overview
+
+### Core Components
 
 ```
-├── data/               # Sample data and dataset information
-├── docs/               # Detailed documentation
-├── evaluation/         # Evaluation scripts and metrics
-├── examples/           # Example code and baselines
-├── models/             # Model checkpoints and configurations
-├── notebooks/          # Jupyter notebooks for exploration and analysis
-├── src/                # Source code
-│   ├── ag_task/        # Answer Generation task code
-│   ├── mc_task/        # Multiple Choice task code
-│   └── utils/          # Shared utilities
-└── submissions/        # Submission format examples
+├── src/ag_task/
+│   ├── vqa_model.py          # Abstract model interface + HuggingFace implementations
+│   ├── model_configs.py      # Pre-defined model configurations
+│   ├── grounding.py          # Grounding and evidence retrieval
+│   ├── synthetic_qa.py       # Synthetic data generation
+│   └── data_loader.py        # Data loading utilities
+├── src/utils/
+│   └── video_processing.py   # Video frame extraction
+├── configs/                  # Configuration files
+├── run_ag_task.py           # Main inference script
+└── generate_synthetic_qa.py  # Synthetic data generation script
 ```
 
-## Dataset
+### Model Configurations
 
-- **Test Dataset**: ~2000 YouTube shorts (approximately 30 seconds each)
-- **Development Data**: Teams can use publicly available VQA datasets
-- Distribution details will be announced via the participants mailing list (TODO: need to follow up how to get added to the mailing list)
+| Config Name | Description | Models Used |
+|-------------|-------------|-------------|
+| `baseline_encoder_decoder` | Basic ViT + T5 model | ViT-Base + FLAN-T5-Base |
+| `improved_encoder_decoder` | Larger model for better performance | ViT-Large + FLAN-T5-Large |
+| `instructblip` | InstructBLIP multimodal model | InstructBLIP-Vicuna-7B |
+| `llava` | LLaVA vision-language model | LLaVA-1.5-7B |
+| `grounded_vqa` | VQA with grounding features | ViT + T5 + CLIP grounding |
 
-## Submission Guidelines
+## 🎯 Research Integration Points
 
-### Answer Generation Format
+### 1. Multimodal Grounding & Alignment
+Based on "[End-to-End Video Question-Answer Generation with Generator-Pretester Network](https://arxiv.org/abs/2101.01447)"
+
+**Implementation Status**: 🚧 Framework ready, models to be integrated
+
+**Key Features**:
+- **Retrieval-Augmented Grounding**: Retrieve relevant video frames as evidence for each answer
+- **Cross-Verification**: Use pretester approach to validate answers against video content
+- **Evidence Tracking**: Frame indices, similarity scores, visual concepts
+
+**Usage**:
+```python
+# Enable grounding in your pipeline
+grounding_config = {
+    "enable_retrieval_grounding": True,
+    "enable_cross_verification": True,
+    "similarity_threshold": 0.7
+}
+```
+
+### 2. Synthetic Q&A Augmentation
+Based on "[LongCaptioning: Unlocking the Power of Long Video Caption Generation](https://arxiv.org/abs/2502.15393)"
+
+**Implementation Status**: ✅ Framework complete, LLM integration ready
+
+**Strategies**:
+- **Template-Based**: Predefined question patterns (baseline)
+- **LLM-Based**: GPT-4V, Qwen-VL-Chat for diverse Q&A generation
+- **Back-Translation**: Convert captions to question-answer pairs
+
+**Usage**:
+```python
+# Generate synthetic data with multiple strategies
+synthetic_config = {
+    "enable_template_generation": True,
+    "enable_llm_generation": True,  # Requires API key
+    "enable_back_translation": True
+}
+```
+
+### 3. Advanced Model Integration
+
+**Supported Model Families**:
+- **Vision-Encoder-Decoder**: ViT + T5/FLAN-T5
+- **Unified Multimodal**: LLaVA, InstructBLIP, Qwen-VL
+- **Custom Models**: Easy to add via abstract interface
+
+**Adding New Models**:
+```python
+# Add to src/ag_task/model_configs.py
+"your_model": {
+    "family": "huggingface",
+    "type": "unified_multimodal",
+    "model_name": "your-org/your-model",
+    "description": "Your model description"
+}
+```
+
+## 📊 Evaluation & Submission
+
+### TRECVID 2025 Submission Format
 ```csv
 Q_ID, Video_ID, Rank, Answer, Time (sec)
-1, tui89Xr_iri, 1, she found a surprise birthday party, 5
-1, tui89Xr_iri, 2, she found party, 6
-1, tui89Xr_iri, 3, she found a group of people, 8
+1, tui89Xr_iri, 1, she found a surprise birthday party, 5.2341
+1, tui89Xr_iri, 2, she found a party, 5.2341
 ...
-1, tui89Xr_iri, 10, a dog barked at her, 10
 ```
 
-### Multiple Choice Format
-```csv
-Q_ID, Video_ID, Rank, option_X
-1, tui89Xr_iri, 1, the room was empty
-1, tui89Xr_iri, 2, a dog jumped on her
-1, tui89Xr_iri, 3, found a party
-1, tui89Xr_iri, 4, a man surprised her
+### Evaluation Metrics
+- **Primary**: NDCG (Normalized Discounted Cumulative Gain)
+- **Secondary**: STS, METEOR, BERTScore
+- **Efficiency**: Generation time per answer
+
+## 📁 Repository Structure
+
+```
+├── src/                      # Source code
+│   ├── ag_task/             # Answer Generation implementation
+│   ├── mc_task/             # Multiple Choice (TODO)
+│   └── utils/               # Shared utilities
+├── configs/                 # Configuration files
+├── data/                    # Dataset and samples
+├── docs/                    # Task documentation
+├── notebooks/               # Research notebooks
+├── submissions/             # Output submissions
+├── run_ag_task.py          # Main AG script
+├── generate_synthetic_qa.py # Synthetic data script
+└── README.md               # This file
 ```
 
-## Evaluation Metrics
+## 🔬 Research Roadmap
 
-- **Answer Generation**: STS, METEOR, BERTScore, NDCG
-- **Multiple Choice**: Top-1 Accuracy, Mean Reciprocal Rank (MRR)
+### Phase 1: Foundation ✅
+- [x] Flexible model interface
+- [x] Basic VQA pipeline
+- [x] Configuration system
+- [x] Grounding framework
+- [x] Synthetic data framework
 
-## Important Dates
+### Phase 2: Model Integration 🚧
+- [ ] LLaVA integration
+- [ ] InstructBLIP integration
+- [ ] CLIP-based grounding
+- [ ] GPT-4V synthetic generation
 
-*To be announced*
+### Phase 3: Advanced Features 📋
+- [ ] Video-specific models (VideoChatGPT)
+- [ ] Temporal reasoning
+- [ ] Multi-modal fusion techniques
+- [ ] Evaluation framework
 
-## Resources
+## 📚 Key Research Papers
 
-- [Submission Instructions](TBA)
-- [Answer Generation Task Details](docs/answer_generation.md)
-- [Multiple Choice Task Details](docs/multiple_choice.md)
+1. **[End-to-End Video Question-Answer Generation with Generator-Pretester Network](https://arxiv.org/abs/2101.01447)** - Generator-Pretester approach for grounding
+2. **[LongCaptioning: Unlocking the Power of Long Video Caption Generation](https://arxiv.org/abs/2502.15393)** - Long video understanding and captioning
+3. **[Evaluating Multimodal Large Language Models on Video Captioning via Monte Carlo Tree Search](https://arxiv.org/abs/2506.11155)** - Advanced evaluation methods
 
-## Contact
+## 🤝 Contributing
 
-For questions and updates, please join the active participants mailing list.
+This framework is designed for research collaboration. Key extension points:
 
-## License
+1. **Add new models**: Implement `BaseVQAModel` interface
+2. **Enhance grounding**: Extend `BaseGroundingModule`
+3. **Improve synthetic generation**: Add new `BaseSyntheticGenerator`
+4. **Evaluation metrics**: Contribute evaluation tools
+
+## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🎯 TRECVID 2025 Specific Notes
+
+- **Test Dataset**: ~2000 YouTube shorts (~30 seconds each)
+- **Submission Deadline**: TBA
+- **Maximum Submissions**: 3 runs per task per team
+- **File Format**: `teamname_ag_run1.csv`, `teamname_ag_run2.csv`, etc.
+
+---
+
+*This framework provides a solid foundation for TRECVID 2025 VQA research while maintaining flexibility for advanced experimentation with grounding, synthetic data, and state-of-the-art multimodal models.*
