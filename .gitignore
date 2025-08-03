@@ -103,4 +103,4 @@ checkpoints/
 *.h5
 
 # git scripts
-git_scripts/
+git_script/
