@@ -1,0 +1,11 @@
+{
+  "video_url": "https://www.youtube.com/watch?v=HhJRo_1C5iY",
+  "question": "Why is the dog barking and hitting a woman with his paw?",
+  "correct_answer": "The dog wants her to give him treats.",
+  "incorrect_answers": [
+    "The dog wants to go outside.",
+    "The dog wants to eat his food.",
+    "The dog sees a cat outside."
+  ],
+  "timestamp": "2025-06-28T16:51:37.564Z"
+}

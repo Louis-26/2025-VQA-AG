@@ -1,0 +1,11 @@
+{
+  "video_url": "https://www.youtube.com/watch?v=ByuygPDH1Vk",
+  "question": "Why was the duck playing dead?",
+  "correct_answer": "The duck was playing dead because a large dog was standing over it.",
+  "incorrect_answers": [
+    "The duck thought the dog wanted to play with it.",
+    "The duck was happy.",
+    "The duck flies away."
+  ],
+  "timestamp": "2025-06-30T18:46:51.740Z"
+}

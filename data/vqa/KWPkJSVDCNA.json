@@ -1,0 +1,11 @@
+{
+  "video_url": "https://www.youtube.com/watch?v=KWPkJSVDCNA",
+  "question": "When does the goalie catch the ball",
+  "correct_answer": "at the end of the offensive play",
+  "incorrect_answers": [
+    "at the beginning of the video",
+    "at the end of the video",
+    "never"
+  ],
+  "timestamp": "2025-07-03T14:04:49.281Z"
+}

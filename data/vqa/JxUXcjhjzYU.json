@@ -1,0 +1,11 @@
+{
+  "video_url": "https://www.youtube.com/watch?v=JxUXcjhjzYU",
+  "question": "How far does the bat fly after he lets go of it?",
+  "correct_answer": "Nowhere; he doesn't let go of it.",
+  "incorrect_answers": [
+    "100 yards.",
+    "10 feet.",
+    "to the other team's dugout."
+  ],
+  "timestamp": "2025-07-08T12:36:28.754Z"
+}

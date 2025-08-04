@@ -1,0 +1,11 @@
+{
+  "video_url": "https://www.youtube.com/watch?v=NBxr52ifOcA",
+  "question": "Who lost the fight?",
+  "correct_answer": "The boxer in white shorts.",
+  "incorrect_answers": [
+    "The boxer in black shorts.",
+    "The spectator.",
+    "The referee,"
+  ],
+  "timestamp": "2025-07-01T16:40:41.306Z"
+}

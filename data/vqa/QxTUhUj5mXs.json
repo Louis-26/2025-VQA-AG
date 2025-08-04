@@ -1,0 +1,11 @@
+{
+  "video_url": "https://www.youtube.com/watch?v=QxTUhUj5mXs",
+  "question": "What is the first sentence verbalized in this video?",
+  "correct_answer": "Today is the day I finally follow my dreams-",
+  "incorrect_answers": [
+    "I did it!",
+    "I am Oscar the Cat Grouch.",
+    "Today is the day I become Oscar the Grouch."
+  ],
+  "timestamp": "2025-07-05T12:54:47.751Z"
+}

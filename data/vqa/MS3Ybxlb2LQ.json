@@ -1,0 +1,11 @@
+{
+  "video_url": "https://www.youtube.com/watch?v=MS3Ybxlb2LQ",
+  "question": "What happens after a man uses an electric tool to drive a screw to attach a hinge to a door?",
+  "correct_answer": "He drives another screw into the side of the door.",
+  "incorrect_answers": [
+    "He gets an electric shock.",
+    "He takes the screw out and drops it.",
+    "The tool breaks."
+  ],
+  "timestamp": "2025-06-25T15:46:43.614Z"
+}

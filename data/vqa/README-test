@@ -1,0 +1,8 @@
+The 2025 VQA task testing dataset includes 2000 queries:
+
+The file: testing.dataset.vqa.2025.csv
+Each line contains: QueryID, youTube video ID, question
+
+Please refer to the track guidelines for more informaiton on run format to submit your results:
+https://www-nlpir.nist.gov/projects/tv2025/vqa.html
+

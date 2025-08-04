@@ -1,0 +1,11 @@
+{
+  "video_url": "https://www.youtube.com/watch?v=KmXaY8-ZyIA",
+  "question": "What does this video teach?",
+  "correct_answer": "A method for removing a pimple.",
+  "incorrect_answers": [
+    "The first step is disinfecting the area around the pimple.",
+    "The second step is putting the tip of a syringe (without a needle) over the pimple.",
+    "The last step is sucking the pus from the pimple into the syringe."
+  ],
+  "timestamp": "2025-07-17T16:12:04.468Z"
+}

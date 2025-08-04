@@ -1,0 +1,11 @@
+{
+  "video_url": "https://www.youtube.com/watch?v=Mf0sSHQNBIM",
+  "question": "What is the man doing in the video?",
+  "correct_answer": "The man is displaying strange behavior using a broom upside down, eating salad out of a drinking glass, drinking juice off a plate and placing his head in a toilet.",
+  "incorrect_answers": [
+    "The man is running down the street.",
+    "The man is laughing.",
+    "The man is hiding behind a tree."
+  ],
+  "timestamp": "2025-07-01T16:13:00.784Z"
+}

@@ -1,0 +1,11 @@
+{
+  "video_url": "https://www.youtube.com/watch?v=EMI_anpHII4",
+  "question": "What does the hand make?",
+  "correct_answer": "A Christmas ornament.",
+  "incorrect_answers": [
+    "A robin.",
+    "A paper bird.",
+    "A Christmas tree."
+  ],
+  "timestamp": "2025-06-30T15:17:13.919Z"
+}

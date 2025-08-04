@@ -1,0 +1,11 @@
+{
+  "video_url": "https://www.youtube.com/watch?v=IScHYoAPr5s",
+  "question": "What happens during the throw-in after someone scores in this basketball game?",
+  "correct_answer": "The throw-in is intercepted by an opponent who makes another basket.",
+  "incorrect_answers": [
+    "The throw-in is too late.",
+    "The throw-in is caught and then stolen by an opponent.",
+    "The throw-in is not thrown correctly."
+  ],
+  "timestamp": "2025-06-30T14:48:25.762Z"
+}

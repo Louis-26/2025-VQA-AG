@@ -1,0 +1,6 @@
+Uncompress the file: vqa.2025.trainingData.zip to extract all 2025 VQA training dataset
+The training datset folder (train) includes:
+- train.2025.csv file : lists on each line a query id, youTube video ID, and a question about the video.
+- individual json files. Each json file corresponds to 1 video and 1 question with the correct answer and possible wrong answers. The json files are named using the youTube video ID.
+
+The 2025 trainign collection includes 500 video QA annotations. 

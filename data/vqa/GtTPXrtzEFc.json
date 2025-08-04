@@ -1,0 +1,11 @@
+{
+  "video_url": "https://www.youtube.com/watch?v=GtTPXrtzEFc",
+  "question": "why is the cat pawing the doors?",
+  "correct_answer": "to try to open them",
+  "incorrect_answers": [
+    "he is playing",
+    "to scratch them",
+    "to close them"
+  ],
+  "timestamp": "2025-07-16T12:14:19.190Z"
+}

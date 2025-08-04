@@ -1,0 +1,11 @@
+{
+  "video_url": "https://www.youtube.com/watch?v=Exf6rtBYbHc",
+  "question": "What happens to the watermelon in the refrigerator?",
+  "correct_answer": "When the refrigerator door open a little cartoon character eats chunks of the watermelon. ",
+  "incorrect_answers": [
+    "The little character jumps out the refrigerator.",
+    "The little character goes to sleep.",
+    "The little character plays with another character."
+  ],
+  "timestamp": "2025-07-12T16:00:29.020Z"
+}

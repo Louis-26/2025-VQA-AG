@@ -1,0 +1,11 @@
+{
+  "video_url": "https://www.youtube.com/watch?v=La-SNVkM06w",
+  "question": "Why is there blue tarp over the truck's cargo?",
+  "correct_answer": "To protect cargo from rain",
+  "incorrect_answers": [
+    "To hide the cargo",
+    "To deceive truck inspectors",
+    "to match the color of the truck "
+  ],
+  "timestamp": "2025-06-28T17:05:49.450Z"
+}

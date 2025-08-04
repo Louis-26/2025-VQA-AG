@@ -1,0 +1,11 @@
+{
+  "video_url": "https://www.youtube.com/watch?v=KGABH4Wryf4",
+  "question": "Is this video demonstrating a well functioning fingerprint padlock?",
+  "correct_answer": "No, because the lock appears to open when the shackle is forcefully pulled.",
+  "incorrect_answers": [
+    "Yes, because the shackle opens when desired.",
+    "It is impossible to tell because the video is cut right after the man puts his thumb on the fingerprint pad.",
+    "The jury is out on this one because the narrator's voice has a questioning tone when talking about the quality of this lock."
+  ],
+  "timestamp": "2025-07-08T13:53:34.226Z"
+}

@@ -1,0 +1,11 @@
+{
+  "video_url": "https://www.youtube.com/watch?v=FVdQHVBAiB4",
+  "question": "How much did the guitar cost?",
+  "correct_answer": "$80.",
+  "incorrect_answers": [
+    "$100.",
+    "$15.",
+    "I don't know."
+  ],
+  "timestamp": "2025-06-30T23:35:45.544Z"
+}

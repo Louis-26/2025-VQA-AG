@@ -1,0 +1,11 @@
+{
+  "video_url": "https://www.youtube.com/watch?v=GuSGaDJsgsE",
+  "question": "What is the sound heard at the beginning of the video?",
+  "correct_answer": "A truck crashing into another truck after skidding and rolling over on a wet roadway.",
+  "incorrect_answers": [
+    "A truck door slamming.",
+    "A truck honking its horn.",
+    "Police and firetruck sirens."
+  ],
+  "timestamp": "2025-06-23T16:07:25.966Z"
+}

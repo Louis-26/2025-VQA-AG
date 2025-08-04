@@ -1,0 +1,11 @@
+{
+  "video_url": "https://www.youtube.com/watch?v=OVMLkh4we3c",
+  "question": "Is this a good defensive technique?\n  ",
+  "correct_answer": "Yes, the attacker has been thrown to the ground.",
+  "incorrect_answers": [
+    "No.  The defender cannot see the attacker.  The attaker could have a weapon.",
+    "No, the defender is too slow; the atacker has too much time to counterattack.",
+    "No, the defender has to end by actually hitting the attacker in the face.  "
+  ],
+  "timestamp": "2025-07-16T19:28:24.810Z"
+}

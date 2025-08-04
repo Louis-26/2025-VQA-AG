@@ -1,0 +1,11 @@
+{
+  "video_url": "https://www.youtube.com/watch?v=GF5kmTYwedw",
+  "question": "what kind of drums are used to record this track?",
+  "correct_answer": "drum machine",
+  "incorrect_answers": [
+    "electronic drums",
+    "computer generated drum sounds",
+    "acoustic drums"
+  ],
+  "timestamp": "2025-07-07T18:42:42.243Z"
+}

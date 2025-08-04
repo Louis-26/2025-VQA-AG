@@ -1,0 +1,11 @@
+{
+  "video_url": "https://www.youtube.com/watch?v=HZva-aCzZts",
+  "question": "What does this carpenter do after using an electric screwdriver to place three long screws in an anchor bracket?",
+  "correct_answer": "He places three more screws in the three holes across the top of the anchor.",
+  "incorrect_answers": [
+    "He places three more screws in the bottom three holes.",
+    "He places three nails in the remaining holes.",
+    "He screws on nuts to secure the screws in the wood."
+  ],
+  "timestamp": "2025-07-08T14:42:06.488Z"
+}

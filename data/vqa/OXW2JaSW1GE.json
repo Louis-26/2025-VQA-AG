@@ -1,0 +1,11 @@
+{
+  "video_url": "https://www.youtube.com/watch?v=OXW2JaSW1GE",
+  "question": "Based on the x-ray and the setting, what is being shown in this video?",
+  "correct_answer": "A dentist removing a wisdom tooth.",
+  "incorrect_answers": [
+    "A dentist removing a canine tooth.",
+    "A dentist removing an incisor.",
+    "A dentist removing a crown."
+  ],
+  "timestamp": "2025-06-27T13:28:33.194Z"
+}

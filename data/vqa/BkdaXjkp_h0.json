@@ -1,0 +1,11 @@
+{
+  "video_url": "https://www.youtube.com/watch?v=BkdaXjkp_h0",
+  "question": "What happens at the end of the video?",
+  "correct_answer": "A man holds up a dress and a woman is describing how  the dress looks.",
+  "incorrect_answers": [
+    "The man holds up a pair of pants.",
+    "The man holds up a sweater.",
+    "The man holds up a blouse."
+  ],
+  "timestamp": "2025-07-15T23:54:52.640Z"
+}
