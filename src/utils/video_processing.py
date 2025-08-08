@@ -27,11 +27,25 @@ def extract_frames(video_path: str, num_frames: int = 16) -> np.ndarray:
     frame_indices = np.linspace(0, total_frames - 1, num_frames, dtype=int)
     
     frames = []
-    for i in frame_indices:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, i)
+    frame_idx_iterator = iter(frame_indices)
+    target_frame_idx = next(frame_idx_iterator, None)
+    
+    current_frame_num = 0
+    while(cap.isOpened() and target_frame_idx is not None):
         ret, frame = cap.read()
-        if ret:
+        if not ret:
+            break
+            
+        if current_frame_num == target_frame_idx:
             frames.append(frame)
+            target_frame_idx = next(frame_idx_iterator, None)
+        
+        current_frame_num += 1
     
     cap.release()
+    
+    # If not enough frames were extracted, it might indicate a problem
+    if len(frames) != num_frames:
+        print(f"Warning: Extracted {len(frames)} out of {num_frames} requested for {video_path}")
+
     return np.array(frames) 
