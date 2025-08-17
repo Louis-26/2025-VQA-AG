@@ -1,6 +1,7 @@
 import os
 import tempfile
 import cv2
+import re
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional, Tuple
 import numpy as np
@@ -74,9 +75,15 @@ class QwenVQAModel(BaseVQAModel):
         ).eval()
         print(f"Initialized Qwen-VL model: {model_name}")
 
+    def _normalize_answer(self, s: str) -> str:
+        s = s.lower()
+        s = re.sub(r"[^\w\s]", " ", s)
+        s = re.sub(r"\s+", " ", s).strip()
+        return s
+
     def generate_answers(self, question: str, frames: Optional[np.ndarray] = None, video_path: Optional[str] = None, 
                        num_answers: int = 1) -> List[AnswerCandidate]:
-        """Generate answers using Qwen-VL's native video handling."""
+        """Generate answers using Qwen-VL's native video handling (supports multiple outputs)."""
         import time
 
         if not video_path:
@@ -85,7 +92,6 @@ class QwenVQAModel(BaseVQAModel):
         start_time = time.time()
         
         # Load video data
-        import cv2
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             raise ValueError(f"Could not open video: {video_path}")
@@ -110,7 +116,7 @@ class QwenVQAModel(BaseVQAModel):
                 "role": "user",
                 "content": [
                     {"type": "video", "video": video_data},
-                    {"type": "text", "text": f"Answer the following question based on the video: {question}"}
+                    {"type": "text", "text": f"Answer the following question concisely in one sentence: {question}"}
                 ]
             }
         ]
@@ -118,25 +124,52 @@ class QwenVQAModel(BaseVQAModel):
         text = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         inputs = self.processor(text=text, videos=[video_data], return_tensors="pt", padding=True).to(self.device)
         
+        # Generate multiple sequences with sampling
+        gen_kwargs = dict(
+            do_sample=True,
+            temperature=0.7,
+            top_p=0.9,
+            max_new_tokens=64,
+            num_return_sequences=max(1, int(num_answers)),
+        )
         with torch.no_grad():
-            generated_ids = self.model.generate(**inputs, max_new_tokens=100)
-            # Trim input prompt tokens before decoding
-            generated_ids_trimmed = [
-                out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
-            ]
-            output_texts = self.processor.batch_decode(
-                generated_ids_trimmed,
-                skip_special_tokens=True,
-                clean_up_tokenization_spaces=False,
-            )
-            response_text = output_texts[0] if output_texts else ""
+            generated_ids = self.model.generate(**inputs, **gen_kwargs)
+
+        # Trim input prompt tokens before decoding
+        generated_ids_trimmed = [
+            out_ids[len(inputs.input_ids[0]):] for out_ids in generated_ids
+        ]
+        decoded = self.processor.batch_decode(
+            generated_ids_trimmed,
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=False,
+        )
+        
+        # De-duplicate to <=10
+        unique_texts: List[str] = []
+        seen = set()
+        for ans in decoded:
+            norm = self._normalize_answer(ans)
+            if not norm:
+                continue
+            if norm in seen:
+                continue
+            seen.add(norm)
+            unique_texts.append(ans.strip())
+            if len(unique_texts) >= 10:
+                break
+        if not unique_texts:
+            unique_texts = [decoded[0].strip()] if decoded else [""]
         
         end_time = time.time()
-        generation_time = end_time - start_time
+        per_ans_time = (end_time - start_time) / max(1, len(unique_texts))
         
-        clean_response = response_text.strip()
-
-        return [AnswerCandidate(text=clean_response, confidence=1.0, generation_time=generation_time)]
+        candidates: List[AnswerCandidate] = []
+        # Simple descending placeholder confidence
+        for i, ans in enumerate(unique_texts):
+            conf = max(0.1, 1.0 - 0.05 * i)
+            candidates.append(AnswerCandidate(text=ans, confidence=conf, generation_time=per_ans_time))
+        return candidates
 
 
 class HuggingFaceVQAModel(BaseVQAModel):
@@ -177,7 +210,7 @@ class HuggingFaceVQAModel(BaseVQAModel):
             self.tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
         
         print(f"Initialized {model_type} model: {self.model_config['model_name']}")
-    
+
     def generate_answers(self, frames: np.ndarray, question: str, 
                         num_answers: int = 10) -> List[AnswerCandidate]:
         """Generate answer candidates using HuggingFace models."""
@@ -211,7 +244,7 @@ class HuggingFaceVQAModel(BaseVQAModel):
             ))
         
         return candidates
-    
+
     def _generate_with_encoder_decoder(self, frames: np.ndarray, question: str, 
                                        num_answers: int) -> List[str]:
         """Generate answers using vision-encoder-decoder architecture."""
@@ -245,7 +278,7 @@ class HuggingFaceVQAModel(BaseVQAModel):
             )
         
         return self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
-    
+
     def _save_frames_to_temp_files(self, frames: np.ndarray, num_keyframes: int) -> List[str]:
         """Saves a selection of frames to temporary files and returns their paths."""
         temp_files = []

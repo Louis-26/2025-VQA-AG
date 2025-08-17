@@ -4,6 +4,61 @@ A flexible and research-oriented framework for the **TRECVID 2025 Video Question
 
 **Official Task Details**: https://www-nlpir.nist.gov/projects/tv2025/vqa.html
 
+## What's New (Zero-shot Qwen2.5‑VL pipeline)
+
+- **Qwen 2.5‑VL 7B Instruct integration** for zero-shot video VQA
+  - Config: `Qwen/Qwen2.5-VL-7B-Instruct` in `src/ag_task/model_configs.py`
+  - New specialized loader: `QwenVQAModel` in `src/ag_task/vqa_model.py` (native video handling via processor)
+- **Robust data loading for your JSON format**: `src/ag_task/json_data_loader.py`
+- **End-to-end inference script**: `run_zeroshot_vqa.py`
+  - Skips missing/corrupted videos gracefully
+  - Generates 16 candidates per item and de-duplicates to top‑10
+- **Critic reranking with LLaVA‑Critic (separate env)**: `scripts/run_rerank_with_critic.py`
+  - Uses sampled frames from videos and judges cand. answers; requires `lmms-lab/llava-critic-7b`
+  - Loads with `attn_implementation="sdpa"` to avoid FlashAttention2 deps
+- **Evaluation**: `evaluation/evaluate_ag_results.py`
+  - Reports ROUGE‑L, METEOR, BERTScore, STS; optional text normalization
+
+### Minimal end-to-end usage
+
+```bash
+# 1) Generate candidates with Qwen 2.5‑VL (zero-shot)
+python run_zeroshot_vqa.py \
+  --model_name Qwen/Qwen2.5-VL-7B-Instruct \
+  --videos_dir /brtx/603-nvme1/yweng13/VQA/my_train_videos \
+  --json_files_dir /brtx/603-nvme1/yweng13/VQA/train_json_files \
+  --num_answers 16 \
+  --max_videos -1 \
+  --output submissions/qwen_candidates.csv
+
+# 2) Rerank with LLaVA‑Critic (run in separate vqa-critic env)
+python -m scripts.run_rerank_with_critic \
+  --candidates_csv submissions/qwen_candidates.csv \
+  --json_dir /brtx/603-nvme1/yweng13/VQA/train_json_files \
+  --videos_dir /brtx/603-nvme1/yweng13/VQA/my_train_videos \
+  --output_csv submissions/qwen_candidates.reranked.csv \
+  --max_images 8 --max_decode_frames 256
+
+# 3) Evaluate
+python evaluation/evaluate_ag_results.py \
+  --pred_file submissions/qwen_candidates.reranked.csv \
+  --json_files_dir /brtx/603-nvme1/yweng13/VQA/train_json_files \
+  --normalize
+```
+
+### LLaVA‑Critic environment tip
+
+- Install LLaVA‑NeXT and pins:
+  - `pip install --no-cache-dir git+https://github.com/LLaVA-VL/LLaVA-NeXT.git@main`
+  - `pip install "transformers==4.43.3" "huggingface_hub==0.24.2" "accelerate==0.33.0"`
+  - `pip install av einops open-clip-torch timm`
+- The reranker loads with `attn_implementation="sdpa"` by default.
+
+### Notes
+
+- Missing videos are skipped with a warning; run will continue.
+- `.gitignore` ignores `submissions/*.csv`, so force-add when committing results.
+
 ## 🚀 Key Features
 
 - **🔄 Flexible Model Architecture**: Easy swapping between different VQA models (ViT+T5, LLaVA, InstructBLIP, etc.)

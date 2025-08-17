@@ -23,6 +23,8 @@ def main():
                        help="Number of frames to extract from each video.")
     parser.add_argument("--max_videos", type=int, default=None,
                        help="Maximum number of videos to process for a quick test.")
+    parser.add_argument("--num_answers", type=int, default=16,
+                       help="Number of answers to generate per question before de-dup.")
     
     args = parser.parse_args()
 
@@ -64,7 +66,7 @@ def main():
 
         try:
             # Pass the video_path directly to the model
-            answer_candidates = vqa_model.generate_answers(question=question, video_path=video_path, num_answers=1)
+            answer_candidates = vqa_model.generate_answers(question=question, video_path=video_path, num_answers=args.num_answers)
         except Exception as e:
             print(f"Warning: Failed to process Video_ID {video_id}: {e}. Skipping.")
             continue
