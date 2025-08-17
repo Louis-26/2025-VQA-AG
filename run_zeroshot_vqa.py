@@ -1,5 +1,6 @@
 import argparse
 import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2,3'
 import json
 from tqdm import tqdm
 import pandas as pd
@@ -67,6 +68,7 @@ def main():
         try:
             # Pass the video_path directly to the model
             answer_candidates = vqa_model.generate_answers(question=question, video_path=video_path, num_answers=args.num_answers)
+
         except Exception as e:
             print(f"Warning: Failed to process Video_ID {video_id}: {e}. Skipping.")
             continue

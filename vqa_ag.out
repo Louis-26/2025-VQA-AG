@@ -1,0 +1,10 @@
+=== Zero-Shot VQA Inference Pipeline ===
+Model: qwen_vl_chat
+
+1. Loading topics from JSON files...
+Loaded 499 topics (limited by --max_videos)
+
+2. Initializing model...
+Initialized Qwen-VL model: Qwen/Qwen2.5-VL-7B-Instruct
+
+3. Processing 499 videos and generating answers...

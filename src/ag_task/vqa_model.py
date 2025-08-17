@@ -71,7 +71,8 @@ class QwenVQAModel(BaseVQAModel):
             model_name,
             device_map="auto",
             torch_dtype="auto",
-            trust_remote_code=True
+            trust_remote_code=True,
+            low_cpu_mem_usage=True
         ).eval()
         print(f"Initialized Qwen-VL model: {model_name}")
 
@@ -347,10 +348,12 @@ def create_vqa_model(model_config: Dict[str, Any]) -> BaseVQAModel:
     model_name = model_config.get("model_name", "")
     
     if "qwen" in model_name.lower() and "vl" in model_name.lower():
+        
         return QwenVQAModel(model_config)
     
     model_family = model_config.get("family", "huggingface")
     if model_family == "huggingface":
+
         return HuggingFaceVQAModel(model_config)
     else:
         raise ValueError(f"Unsupported model family: {model_family}") 
