@@ -104,3 +104,5 @@ checkpoints/
 
 # scripts
 *.sh
+*.err
+*.out
