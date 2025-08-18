@@ -7,6 +7,8 @@ from typing import List, Dict, Any, Optional, Tuple
 import numpy as np
 import torch
 from dataclasses import dataclass
+import time
+import multiprocessing
 
 @dataclass
 class AnswerCandidate:
@@ -21,7 +23,7 @@ class BaseVQAModel(ABC):
     
     def __init__(self, model_config: Dict[str, Any]):
         self.model_config = model_config
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "auto"
         self._initialize_model()
     
     @abstractmethod
@@ -345,10 +347,110 @@ class HuggingFaceVQAModel(BaseVQAModel):
         
         return [clean_response]
 
+class VLLMVQAModel(BaseVQAModel):
+    """VQA model implementation specifically for vLLM."""
+    
+    def _initialize_model(self):
+        """Initialize the vLLM model."""
+        from vllm import LLM
+        from transformers import AutoProcessor
+        
+        model_name = self.model_config["model_name"]
+        
+        # vLLM engine initialization
+        self.model = LLM(
+            model=model_name,
+            trust_remote_code=True,
+            # For multi-GPU, you can set tensor_parallel_size
+            tensor_parallel_size=4
+        )
+        
+        # The processor is still needed to format the prompt correctly
+        self.processor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
+        print(f"Initialized vLLM engine for model: {model_name}")
+    
+    def generate_answers(self, question: str, frames: Optional[np.ndarray] = None, video_path: Optional[str] = None, 
+                       num_answers: int = 10) -> List[AnswerCandidate]:
+        """Generate answers using vLLM."""
+        from vllm import SamplingParams
+        
+        if not video_path:
+            raise ValueError("VLLMVQAModel requires a 'video_path'.")
+        
+        start_time = time.time()
+
+        
+        # Extract frames from video
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            raise ValueError(f"Could not open video: {video_path}")
+        
+        frames_list: List[np.ndarray] = []
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frames_list.append(frame)
+        cap.release()
+
+        # Convert frames to numpy array (T, H, W, C)
+        video_data = np.array(frames_list)
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "video", "video": video_data},
+                    {"type": "text", "text": f"Answer the following question concisely in one sentence: {question}"}
+                ]
+            }
+        ]
+        text = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        # inputs = self.processor(text=text, videos=[video_data], return_tensors="pt", padding=True)
+
+        # Define sampling parameters
+        sampling_params = SamplingParams(
+            temperature=self.model_config.get("temperature", 0.7),
+            max_tokens=self.model_config.get("max_new_tokens", 64),
+            top_p=0.9,
+            n=num_answers,
+        )
+        
+        # Generate answers
+        with torch.no_grad():
+            outputs = self.model.generate([text], sampling_params)
+        end_time = time.time()
+        generation_time = (end_time - start_time) / len(outputs)
+        # Process the outputs
+        answers = []
+        for output in outputs[0].outputs:
+            text = output.text
+            answers.append(AnswerCandidate(text=text, confidence=1.0, generation_time=generation_time))
+        
+        return answers
+    
+    def _extract_frames_from_video(self, video_path: str) -> Optional[np.ndarray]:
+        """Extract frames from a video file."""
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            raise ValueError(f"Could not open video: {video_path}")
+        
+        frames_list: List[np.ndarray] = []
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frames_list.append(frame)
+        cap.release()
+        return np.array(frames_list)
+
+
 # Model factory for easy instantiation
 def create_vqa_model(model_config: Dict[str, Any]) -> BaseVQAModel:
     """Factory function to create VQA models based on configuration."""
     model_name = model_config.get("model_name", "")
+    engine = model_config.get("engine", "")
+    if engine == "vllm":
+        return VLLMVQAModel(model_config)
     
     if "qwen" in model_name.lower() and "vl" in model_name.lower():
         
@@ -360,3 +462,23 @@ def create_vqa_model(model_config: Dict[str, Any]) -> BaseVQAModel:
         return HuggingFaceVQAModel(model_config)
     else:
         raise ValueError(f"Unsupported model family: {model_family}") 
+
+
+if __name__ == "__main__":
+    try:
+        multiprocessing.set_start_method('spawn', force=True)
+    except RuntimeError:
+        # The context might already be set in some environments (e.g., Jupyter).
+        pass
+    vllm_config = {
+        "model_name": "Qwen/Qwen2.5-VL-7B-Instruct",
+        "engine": "vllm",          
+        "num_keyframes": 5,
+        "temperature": 0.7,
+        "max_new_tokens": 64,
+    }
+    model = create_vqa_model(vllm_config)
+    question = "What is the video about?"
+
+    answers = model.generate_answers(question, video_path="./test.mp4", num_answers=10)
+    print(answers)

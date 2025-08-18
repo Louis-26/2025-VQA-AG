@@ -49,6 +49,14 @@ MODEL_CONFIGS = {
         "max_length": 100,
         "description": "Official Qwen 2.5 VL 7B Instruct model"
     },
+    "qwen_vl_chat_vllm": {
+        "family": "huggingface",
+        "type": "unified_multimodal",
+        "model_name": "Qwen/Qwen2.5-VL-7B-Instruct",
+        "max_length": 100,
+        "engine": "vllm",
+        "description": "Official Qwen 2.5 VL 7B Instruct model with vLLM engine"
+    },
     
     # Configuration for future grounding-enhanced models
     "grounded_vqa": {

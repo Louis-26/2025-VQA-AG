@@ -22,9 +22,18 @@ A flexible and research-oriented framework for the **TRECVID 2025 Video Question
 ### Minimal end-to-end usage
 
 ```bash
-# 1) Generate candidates with Qwen 2.5‑VL (zero-shot)
+# 1.a) Generate candidates with Qwen 2.5‑VL (zero-shot) 
 python run_zeroshot_vqa.py \
   --model_config qwen_vl_chat \
+  --videos_dir /brtx/603-nvme1/yweng13/VQA/my_train_videos \
+  --json_files_dir /brtx/603-nvme1/yweng13/VQA/train_json_files \
+  --num_answers 16 \
+  --max_videos -1 \
+  --output submissions/qwen_candidates.csv
+
+# 1.b) Generate candidates with Qwen 2.5‑VL vllm (zero-shot) 
+python run_zeroshot_vqa.py \
+  --model_config qwen_vl_chat_vllm \
   --videos_dir /brtx/603-nvme1/yweng13/VQA/my_train_videos \
   --json_files_dir /brtx/603-nvme1/yweng13/VQA/train_json_files \
   --num_answers 16 \
