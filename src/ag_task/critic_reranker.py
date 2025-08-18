@@ -4,7 +4,6 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 from PIL import Image
-import torch
 
 
 class CriticImportError(RuntimeError):
@@ -69,34 +68,12 @@ class LlavaCriticReranker:
         self.max_images = max_images
         self.conv_template = conv_template
 
-        # Ensure tokenizer resize works across transformer versions (dict-based text_config)
-        try:
-            from transformers.modeling_utils import PreTrainedModel  # type: ignore
-
-            _orig_resize = PreTrainedModel.resize_token_embeddings
-
-            def _safe_resize_token_embeddings(self_model, new_num_tokens=None, pad_to_multiple_of=None, *args, **kwargs):
-                text_cfg = getattr(self_model.config, "text_config", None)
-                if isinstance(text_cfg, dict):
-                    class _CfgObj:
-                        pass
-                    obj = _CfgObj()
-                    for k, v in text_cfg.items():
-                        setattr(obj, k, v)
-                    self_model.config.text_config = obj
-                return _orig_resize(self_model, new_num_tokens=new_num_tokens, pad_to_multiple_of=pad_to_multiple_of, *args, **kwargs)
-
-            PreTrainedModel.resize_token_embeddings = _safe_resize_token_embeddings  # type: ignore
-        except Exception:
-            pass
-
         # load model
         tokenizer, model, image_processor, max_length = self._load_pretrained_model(
             model_path=model_name,
             model_base=None,
             model_name="llava_qwen",
             device_map=device_map,
-            attn_implementation="sdpa",
         )
         self.tokenizer = tokenizer
         self.model = model.eval()
@@ -154,9 +131,6 @@ class LlavaCriticReranker:
         pil_images = _to_pil_frames(sampled)
 
         image_tensor = self._process_images(pil_images, self.image_processor, self.model.config)
-        # Ensure dtype/device match the model (avoid float32 vs fp16/bf16 mismatch)
-        target_dtype = getattr(self.model, "dtype", torch.float16)
-        image_tensor = image_tensor.to(self.model.device, dtype=target_dtype)
         image_sizes = [im.size for im in pil_images]
 
         results: List[Tuple[str, float, float, str]] = []

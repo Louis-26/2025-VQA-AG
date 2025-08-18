@@ -1,5 +1,9 @@
-import argparse
 import os
+# Mitigate CUDA memory fragmentation unless user already set a policy externally
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+import argparse
+import os as _os
 import json
 from tqdm import tqdm
 import pandas as pd
@@ -30,6 +34,7 @@ def main():
 
     print("=== Zero-Shot VQA Inference Pipeline ===")
     print(f"Model: {args.model_config}")
+    print(f"PYTORCH_CUDA_ALLOC_CONF={os.environ.get('PYTORCH_CUDA_ALLOC_CONF')}")
     
     print("\n1. Loading topics from JSON files...")
     topics = load_json_topics(args.json_files_dir)
@@ -59,8 +64,8 @@ def main():
         question = topic["Question"]
         q_id = topic["Q_ID"]
         
-        video_path = os.path.join(args.videos_dir, f"{video_id}.mp4")
-        if not os.path.exists(video_path):
+        video_path = _os.path.join(args.videos_dir, f"{video_id}.mp4")
+        if not _os.path.exists(video_path):
             print(f"Warning: Video file not found for Video_ID {video_id}. Skipping.")
             continue
 

@@ -83,7 +83,7 @@ class QwenVQAModel(BaseVQAModel):
 
     def generate_answers(self, question: str, frames: Optional[np.ndarray] = None, video_path: Optional[str] = None, 
                        num_answers: int = 1) -> List[AnswerCandidate]:
-        """Generate answers using Qwen-VL's native video handling (supports multiple outputs)."""
+        """Generate answers sequentially to reduce peak memory; then de-duplicate to <=10."""
         import time
 
         if not video_path:
@@ -110,7 +110,7 @@ class QwenVQAModel(BaseVQAModel):
         # Convert frames to numpy array (T, H, W, C)
         video_data = np.array(frames_list)
         
-        # Build messages and tokenize with processor
+        # Build messages and tokenize with processor (done once)
         messages = [
             {
                 "role": "user",
@@ -124,35 +124,31 @@ class QwenVQAModel(BaseVQAModel):
         text = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         inputs = self.processor(text=text, videos=[video_data], return_tensors="pt", padding=True).to(self.device)
         
-        # Generate multiple sequences with sampling
+        decoded: List[str] = []
+        # Generate one sequence at a time to lower peak memory
         gen_kwargs = dict(
             do_sample=True,
             temperature=0.7,
             top_p=0.9,
             max_new_tokens=64,
-            num_return_sequences=max(1, int(num_answers)),
+            num_return_sequences=1,
         )
         with torch.no_grad():
-            generated_ids = self.model.generate(**inputs, **gen_kwargs)
+            for _ in range(max(1, int(num_answers))):
+                out_ids = self.model.generate(**inputs, **gen_kwargs)
+                # Trim input prompt tokens before decoding
+                trimmed = out_ids[0][len(inputs.input_ids[0]):]
+                text_out = self.processor.decode(trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False)
+                decoded.append(text_out)
+                # Free intermediate tensor
+                del out_ids
 
-        # Trim input prompt tokens before decoding
-        generated_ids_trimmed = [
-            out_ids[len(inputs.input_ids[0]):] for out_ids in generated_ids
-        ]
-        decoded = self.processor.batch_decode(
-            generated_ids_trimmed,
-            skip_special_tokens=True,
-            clean_up_tokenization_spaces=False,
-        )
-        
         # De-duplicate to <=10
         unique_texts: List[str] = []
         seen = set()
         for ans in decoded:
             norm = self._normalize_answer(ans)
-            if not norm:
-                continue
-            if norm in seen:
+            if not norm or norm in seen:
                 continue
             seen.add(norm)
             unique_texts.append(ans.strip())
@@ -165,7 +161,6 @@ class QwenVQAModel(BaseVQAModel):
         per_ans_time = (end_time - start_time) / max(1, len(unique_texts))
         
         candidates: List[AnswerCandidate] = []
-        # Simple descending placeholder confidence
         for i, ans in enumerate(unique_texts):
             conf = max(0.1, 1.0 - 0.05 * i)
             candidates.append(AnswerCandidate(text=ans, confidence=conf, generation_time=per_ans_time))
