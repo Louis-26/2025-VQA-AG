@@ -131,8 +131,11 @@ class QwenVQAModel(BaseVQAModel):
             temperature=0.7,
             top_p=0.9,
             max_new_tokens=64,
-            num_return_sequences=max(1, int(num_answers)),
+            # num_return_sequences=max(1, int(num_answers)),
+            num_return_sequences=1,
+
         )
+        print(gen_kwargs)
         with torch.no_grad():
             generated_ids = self.model.generate(**inputs, **gen_kwargs)
 

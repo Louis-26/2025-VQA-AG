@@ -36,6 +36,12 @@ def safe_imports():
         modules["np"] = np
     except Exception:
         errs.append("sentence-transformers (pip install sentence-transformers)")
+    
+    try:
+        from sklearn.metrics import ndcg_score
+        modules["ndcg_score"] = ndcg_score
+    except Exception:
+        errs.append("scikit-learn (pip install scikit-learn)")
 
     if errs:
         raise RuntimeError(
