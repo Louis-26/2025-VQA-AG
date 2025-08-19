@@ -186,7 +186,7 @@ class LlavaCriticReranker:
                 )
             latency = time.time() - st
             text_out = self.tokenizer.batch_decode(cont, skip_special_tokens=True)[0]
-
+            print(text_out)
             score = self._parse_score(text_out) or 0.0
             results.append((ans, float(score), float(latency), text_out))
         return results

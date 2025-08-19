@@ -135,6 +135,33 @@ def compute_sts(preds: List[str], refs: List[str], SentenceTransformer, np, mode
     return sims_list, float(np.mean(sims)) if len(sims_list) else 0.0
 
 
+def compute_ndcg(ranked_answers,mods,args, threshold=0.5):
+    ndcg_list = []
+    
+    for qid, answers in ranked_answers.items():
+        sts_score,_ = compute_sts(answers['Answer'], answers['label'], mods["SentenceTransformer"], mods["np"], args.sts_model)
+        labels = [1 if score >= threshold else 0 for score in sts_score]
+
+        ndcg_list.append(mods["ndcg_score"]([labels], [answers['CriticScore']]))
+    return ndcg_list, sum(ndcg_list) / len(ndcg_list) if ndcg_list else 0.0
+
+def construct_ranked_answers(df,gt_map,normalize=False):
+    ranked_answers = {}
+    for _,row in df.iterrows():
+        qid = str(row["Q_ID"]).strip()
+        if qid not in ranked_answers:
+            ranked_answers[qid] = {}
+        if 'CriticScore' not in ranked_answers[qid]:
+            ranked_answers[qid]['CriticScore'] = []
+        if 'label' not in ranked_answers[qid]:
+            ranked_answers[qid]['label'] = []
+        if 'Answer' not in ranked_answers[qid]:
+            ranked_answers[qid]['Answer'] = []
+        ranked_answers[qid]['CriticScore'].append(row["CriticScore"] if not normalize else normalize_text(row["CriticScore"]))
+        ranked_answers[qid]['label'].append(gt_map.get(qid) if not normalize else normalize_text(gt_map.get(qid)))
+        ranked_answers[qid]['Answer'].append(row["Answer"].strip() if not normalize else normalize_text(row["Answer"].strip()))
+    return ranked_answers
+
 def main():
     parser = argparse.ArgumentParser("Evaluate generated AG answers against JSON ground truth")
     parser.add_argument("--pred_file", required=True, help="CSV with columns Q_ID,Answer (others ignored)")
@@ -144,6 +171,7 @@ def main():
 
     # Sanity-check options
     parser.add_argument("--normalize", action="store_true", help="Also compute metrics on normalized text")
+    parser.add_argument("--NDCG", action="store_true", help="Also compute NDCG")
     parser.add_argument("--bertscore_model", default=None, help="Override model_type for BERTScore (e.g., roberta-large)")
     parser.add_argument("--no_bertscore_rescale", action="store_true", help="Disable rescale_with_baseline for BERTScore")
     parser.add_argument("--bertscore_use_idf", action="store_true", help="Enable IDF weighting for BERTScore")
@@ -161,9 +189,10 @@ def main():
         raise ValueError("pred_file must contain columns Q_ID and Answer")
 
     # Keep first prediction per Q_ID if duplicates
-    df = df.sort_values(by=["Q_ID", "CriticScore","CriticLatencySec"], ascending=[True, False, True]) if "Rank" in df.columns else df
+    df = df.sort_values(by=["Q_ID", "CriticScore","CriticLatencySec"], ascending=[True, False, True]) if "CriticScore" in df.columns else df
+    
     df_unique = df.drop_duplicates(subset=["Q_ID"], keep="first").reset_index(drop=True)
-
+    
     # Load ground truth
     gt_map = load_ground_truths(args.json_files_dir)
 
@@ -180,10 +209,14 @@ def main():
         qids.append(qid)
         preds.append(pred)
         refs.append(ref)
+    if args.NDCG:
+        ranked_answers = construct_ranked_answers(df,gt_map)
+
+
 
     if not preds:
         raise RuntimeError("No aligned predictions with ground-truth were found. Check Q_ID matching.")
-    import pdb; pdb.set_trace()
+
     # Compute metrics (raw)
     rouge_list, rouge_avg = compute_rouge_l(preds, refs, mods["rouge_scorer"]) 
     meteor_list, meteor_avg = compute_meteor(preds, refs, mods["single_meteor_score"]) 
@@ -195,6 +228,9 @@ def main():
     )
     sts_list, sts_avg = compute_sts(preds, refs, mods["SentenceTransformer"], mods["np"], args.sts_model) 
 
+    if args.NDCG:
+        ndcg_list, ndcg_avg = compute_ndcg(ranked_answers, mods,args,sts_avg)
+
     per_item_dict = {
         "Q_ID": qids,
         "Prediction": preds,
@@ -204,6 +240,8 @@ def main():
         "BERTScore_F1": bert_list,
         "STS_Cosine": sts_list,
     }
+    if args.NDCG:
+        per_item_dict["NDCG"] = ndcg_list
 
     summary = {
         "num_items_evaluated": len(qids),
@@ -215,9 +253,12 @@ def main():
             "STS_Cosine": sts_avg,
         }
     }
-
+    if args.NDCG:
+        summary["averages"]["NDCG"] = ndcg_avg
     # Optionally compute normalized metrics
     if args.normalize:
+        if args.NDCG:
+            ranked_answers_n = construct_ranked_answers(df,gt_map,normalize=True)
         preds_n = [normalize_text(x) for x in preds]
         refs_n = [normalize_text(x) for x in refs]
         rouge_n_list, rouge_n_avg = compute_rouge_l(preds_n, refs_n, mods["rouge_scorer"]) 
@@ -229,20 +270,24 @@ def main():
             use_idf=args.bertscore_use_idf,
         )
         sts_n_list, sts_n_avg = compute_sts(preds_n, refs_n, mods["SentenceTransformer"], mods["np"], args.sts_model) 
-
+        if args.NDCG:
+            ndcg_n_list, ndcg_n_avg = compute_ndcg(ranked_answers_n, mods,args,sts_avg)
         per_item_dict.update({
             "ROUGE_L_norm": rouge_n_list,
             "METEOR_norm": meteor_n_list,
             "BERTScore_F1_norm": bert_n_list,
             "STS_Cosine_norm": sts_n_list,
         })
+        if args.NDCG:
+            per_item_dict["NDCG_norm"] = ndcg_n_list
         summary["averages_norm"] = {
             "ROUGE_L": rouge_n_avg,
             "METEOR": meteor_n_avg,
             "BERTScore_F1": bert_n_avg,
             "STS_Cosine": sts_n_avg,
         }
-
+        if args.NDCG:
+            summary["averages_norm"]["NDCG"] = ndcg_n_avg
     # Outputs
     if args.per_item_out is None:
         base = os.path.splitext(args.pred_file)[0]

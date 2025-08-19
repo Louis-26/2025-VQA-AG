@@ -36,7 +36,7 @@ python run_zeroshot_vqa.py \
   --model_config qwen_vl_chat_vllm \
   --videos_dir /brtx/603-nvme1/yweng13/VQA/my_train_videos \
   --json_files_dir /brtx/603-nvme1/yweng13/VQA/train_json_files \
-  --num_answers 16 \
+  --num_answers 10 \
   --max_videos -1 \
   --output submissions/qwen_candidates.csv
 
