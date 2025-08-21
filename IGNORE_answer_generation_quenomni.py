@@ -27,23 +27,19 @@ def free_cuda(tag=""):
               f"alloc {torch.cuda.memory_allocated()/1024**3:.2f} GB | "
               f"reserved {torch.cuda.memory_reserved()/1024**3:.2f} GB")
 
-VIDEO_DIR = "/brtx/603-nvme1/yweng13/VQA/my_train_videos"
-JSON_DIR = "/brtx/603-nvme1/yweng13/VQA/train_json_files"
-
 # %%
 # Load model
 free_cuda("start")
 
 model = Qwen2_5OmniForConditionalGeneration.from_pretrained(
-    "Qwen/Qwen2.5-Omni-3B",
+    "Qwen/Qwen2.5-Omni-7B",
     torch_dtype="auto",
     device_map="auto",
     low_cpu_mem_usage=True,
 ).eval()
 
 model.gradient_checkpointing_enable()
-model.disable_talker()
-processor = Qwen2_5OmniProcessor.from_pretrained("Qwen/Qwen2.5-Omni-3B")
+processor = Qwen2_5OmniProcessor.from_pretrained("Qwen/Qwen2.5-Omni-7B")
 
 # model = Qwen2_5OmniForConditionalGeneration.from_pretrained(
 #     "Qwen/Qwen2.5-Omni-3B",
@@ -101,38 +97,54 @@ Here is an example of a properly filled out response:
 """
 
 # %%
-def find_mp4_for_json(file_stem, video_dir):
-        matches = sorted(Path(video_dir).glob(f"{file_stem}*.mp4"))
-        if not matches:
-            return None
-        return matches[0]
+def download_video(video_url, output_path):
+    print(f"Downloading video from {video_url}...")
+    try:
+        subprocess.run(
+            [
+                "yt-dlp",
+                "-f", "bv*+ba/b",  #select best video and audio (don't have a best that has both)
+                "--merge-output-format", "mp4",
+                "-o", str(output_path),
+                video_url,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as e:
+        print(f"Error during video download: {e.stderr}")
 
-def generate_qa(file_name, prompt, question):
+
+def generate_qa(file_name, prompt, video_url, question):
     work = pathlib.Path(tempfile.mkdtemp())
+    original_video_path = work / f"{file_name}_original.mp4"
     processed_video_path = work / f"{file_name}_processed.mp4"
 
-    print(file_name)
+    print(original_video_path)
 
-    video_path = find_mp4_for_json(file_name, VIDEO_DIR)
+    # Download the video 
+    download_video(video_url, original_video_path)
 
-    # Downsample video until something works
+    # Downsample audio/video until something works
     fps_candidates = [15, 12, 10, 8, 4, 2, 1]
-    #height_candidates = [720, 480, 360, 240]
+    ac_candidates = [8, 6, 4, 2, 1]
+    height_candidates = [720, 480, 360, 240]
+    last_oom = None
+    last_ffmpeg_err = None
 
     for fps in fps_candidates:
-        #for h in height_candidates:
+        for h in height_candidates:
+            for ac in ac_candidates:
                 try:
                     cmd = [
                         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-                        "-i", str(video_path), #input 0
-                        #"-i", str(audio_path), #input 1
-                        "-vf", f"fps={fps}", #"scale=-2:{h}",
+                        "-i", str(original_video_path),
+                        "-vf", f"fps={fps},scale=-2:{h}",   # reduce FPS, then scale to target height
                         "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
                         "-movflags", "+faststart",
-                        #"-map", "0:v:0", #take video from input 0
-                        #"-map", "1:a:0", #take audio from input 1
-                        #"-c:a", "aac", "-b:a", "96k", "-ac", str(ac),
-                        #"-shortest", #stop when the shorter stream ends
+                        "-map", "0:v:0", "-map", "0:a:0?",
+                        "-c:a", "aac", "-b:a", "96k", "-ac", str(ac),
                         str(processed_video_path)
                     ]
                     subprocess.run(cmd, check=True, capture_output=True, text=True)
@@ -144,7 +156,7 @@ def generate_qa(file_name, prompt, question):
                     ]
 
                     text = processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
-                    audios, images, videos = process_mm_info(messages, use_audio_in_video=False)
+                    audios, images, videos = process_mm_info(messages, use_audio_in_video=True)
 
                     inputs_cpu = processor(
                         text=text,
@@ -153,7 +165,7 @@ def generate_qa(file_name, prompt, question):
                         videos=videos,
                         return_tensors="pt",
                         padding=False,
-                        use_audio_in_video=False,
+                        use_audio_in_video=True,
                     )
 
                     inputs_gpu = {}
@@ -172,18 +184,39 @@ def generate_qa(file_name, prompt, question):
                         text_ids = model.generate(
                             **inputs_gpu,
                             cache_implementation="offloaded",
-                            use_audio_in_video=False,
-                            return_audio=False
+                            use_audio_in_video=True
                         )
 
-                    answer = processor.batch_decode(text_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
+                    answer = processor.batch_decode(
+                        text_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
+                    )[0]
 
                     print(answer)
                     return answer #yay!
 
                 except torch.cuda.OutOfMemoryError as e:
-                    free_cuda(f"failed fps = {fps}")
+                    last_oom = e
+                    torch.cuda.empty_cache()
+                    gc.collect()
                     continue  #try next combo
+
+                except subprocess.CalledProcessError as e:
+                    # ffmpeg failed
+                    last_ffmpeg_err = e
+                    continue
+
+                # Cleanup
+                finally:
+                    try:
+                        if original_video_path.exists():
+                            os.remove(original_video_path)
+                    except Exception:
+                        pass
+                    try:
+                        if processed_video_path.exists():
+                            os.remove(processed_video_path)
+                    except Exception:
+                        pass
 
     # Exhausted all combos
     raise RuntimeError("Ran out of GPU memory for all fps/ac combinations tried.")
@@ -193,7 +226,9 @@ def generate_qa(file_name, prompt, question):
 from pathlib import Path
 import json
 
-for file in Path(JSON_DIR).iterdir():
+folder_path = Path("/brtx/605-nvme1/kguerre6/alex_checked")
+
+for file in folder_path.iterdir():
     # Clear everything before each video
     free_cuda("loop-start")
     
@@ -214,7 +249,7 @@ for file in Path(JSON_DIR).iterdir():
     print(data["video_url"], data["question"])
     
 
-    answers = generate_qa(file.stem, prompt, data["question"])
+    answers = generate_qa(file.stem, prompt, data["video_url"], data["question"])
     
     # Parse and save
     parsed_data = json.loads(answers)
