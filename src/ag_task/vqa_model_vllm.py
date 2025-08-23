@@ -64,6 +64,11 @@ class QwenVQAModel(BaseVQAModel):
     def _initialize_model(self):
         """Initialize the Qwen-VL model."""
         from transformers import AutoTokenizer, AutoProcessor
+        # Add reranker tokens so pointer IDs are single tokens
+        try:
+            from src.reranker.tokens import add_special_tokens_to_tokenizer
+        except Exception:
+            add_special_tokens_to_tokenizer = None
         from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLForConditionalGeneration
         
         model_name = self.model_config["model_name"]
@@ -76,6 +81,11 @@ class QwenVQAModel(BaseVQAModel):
             trust_remote_code=True,
             low_cpu_mem_usage=True
         ).eval()
+        if add_special_tokens_to_tokenizer is not None:
+            try:
+                add_special_tokens_to_tokenizer(self.tokenizer, self.model)
+            except Exception:
+                pass
         print(f"Initialized Qwen-VL model: {model_name}")
 
     def _normalize_answer(self, s: str) -> str:
@@ -189,6 +199,10 @@ class HuggingFaceVQAModel(BaseVQAModel):
             AutoTokenizer,
             AutoModelForCausalLM
         )
+        try:
+            from src.reranker.tokens import add_special_tokens_to_tokenizer
+        except Exception:
+            add_special_tokens_to_tokenizer = None
         
         model_type = self.model_config.get("type", "vision_encoder_decoder")
         
@@ -214,6 +228,11 @@ class HuggingFaceVQAModel(BaseVQAModel):
                 trust_remote_code=True
             )
             self.tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+        if add_special_tokens_to_tokenizer is not None:
+            try:
+                add_special_tokens_to_tokenizer(self.tokenizer, self.model)
+            except Exception:
+                pass
         
         print(f"Initialized {model_type} model: {self.model_config['model_name']}")
 
@@ -353,17 +372,33 @@ class VLLMVQAModel(BaseVQAModel):
     def _initialize_model(self):
         """Initialize the vLLM model."""
         from vllm import LLM
-        from transformers import AutoProcessor
+        from transformers import AutoProcessor, AutoTokenizer
+        from tempfile import mkdtemp
+        try:
+            from src.reranker.tokens import add_special_tokens_to_tokenizer
+        except Exception:
+            add_special_tokens_to_tokenizer = None
         
         model_name = self.model_config["model_name"]
         
-        # vLLM engine initialization
-        self.model = LLM(
+        tokenizer_path = None
+        if add_special_tokens_to_tokenizer is not None:
+            try:
+                tok = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+                add_special_tokens_to_tokenizer(tok, None)
+                tokenizer_path = mkdtemp(prefix="qwen_tok_")
+                tok.save_pretrained(tokenizer_path)
+            except Exception:
+                tokenizer_path = None
+        # vLLM engine initialization (pass tokenizer path if available so special tokens are recognized)
+        llm_kwargs = dict(
             model=model_name,
             trust_remote_code=True,
-            # For multi-GPU, you can set tensor_parallel_size
             tensor_parallel_size=4
         )
+        if tokenizer_path:
+            llm_kwargs["tokenizer"] = tokenizer_path
+        self.model = LLM(**llm_kwargs)
         
         # The processor is still needed to format the prompt correctly
         self.processor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
