@@ -9,6 +9,7 @@ import torch
 from dataclasses import dataclass
 import time
 import multiprocessing
+from qwen_vl_utils import process_vision_info
 
 @dataclass
 class AnswerCandidate:
@@ -399,14 +400,33 @@ class VLLMVQAModel(BaseVQAModel):
             {
                 "role": "user",
                 "content": [
-                    {"type": "video", "video": video_data},
+                    {
+                        "type": "video", 
+                        "video": video_path,
+                        "fps": 30,
+                        "max_pixels": 360 * 420,
+                    },
                     {"type": "text", "text": f"Answer the following question concisely in one sentence: {question}"}
                 ]
             }
         ]
         text = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         # inputs = self.processor(text=text, videos=[video_data], return_tensors="pt", padding=True)
+        image_inputs, video_inputs, video_kwargs = process_vision_info(messages, return_video_kwargs=True)
 
+        mm_data = {}
+        if image_inputs is not None:
+            mm_data["image"] = image_inputs
+        if video_inputs is not None:
+            mm_data["video"] = video_inputs
+
+        llm_inputs = {
+            "prompt": text,
+            "multi_modal_data": mm_data,
+
+            # FPS will be returned in video_kwargs
+            "mm_processor_kwargs": video_kwargs,
+        }
         # Define sampling parameters
         sampling_params = SamplingParams(
             temperature=self.model_config.get("temperature", 0.7),
@@ -417,7 +437,7 @@ class VLLMVQAModel(BaseVQAModel):
         
         # Generate answers
         with torch.no_grad():
-            outputs = self.model.generate([text], sampling_params)
+            outputs = self.model.generate([llm_inputs], sampling_params)
         end_time = time.time()
         generation_time = (end_time - start_time) / len(outputs)
         # Process the outputs
@@ -480,5 +500,5 @@ if __name__ == "__main__":
     model = create_vqa_model(vllm_config)
     question = "What is the video about?"
 
-    answers = model.generate_answers(question, video_path="./test.mp4", num_answers=10)
+    answers = model.generate_answers(question, video_path="./yoga.mp4", num_answers=10)
     print(answers)

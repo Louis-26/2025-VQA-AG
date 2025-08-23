@@ -48,7 +48,14 @@ python -m scripts.run_rerank_with_critic \
   --output_csv submissions/qwen_candidates.reranked.csv \
   --max_images 8 --max_decode_frames 256
 
-# 3) Evaluate
+# 3) Generate training data pairs
+python -m scripts.generate_training_data \
+  --candidates_csv submissions/qwen_candidates.csv \
+  --json_dir /brtx/603-nvme1/yweng13/VQA/train_json_files \
+  --videos_dir /brtx/603-nvme1/yweng13/VQA/my_train_videos \
+  --output_csv submissions/sft_training_data.csv
+
+# 4) Evaluate
 python evaluation/evaluate_ag_results.py \
   --pred_file submissions/qwen_candidates.reranked.csv \
   --json_files_dir /brtx/603-nvme1/yweng13/VQA/train_json_files \
