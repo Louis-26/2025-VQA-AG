@@ -35,15 +35,16 @@ JSON_DIR = "/brtx/603-nvme1/yweng13/VQA/train_json_files"
 free_cuda("start")
 
 model = Qwen2_5OmniForConditionalGeneration.from_pretrained(
-    "Qwen/Qwen2.5-Omni-3B",
-    torch_dtype="auto",
+    "Qwen/Qwen2.5-Omni-7B",
+    torch_dtype=torch.float16,
     device_map="auto",
     low_cpu_mem_usage=True,
+    attn_implementation="flash_attention_2" 
 ).eval()
 
 model.gradient_checkpointing_enable()
 model.disable_talker()
-processor = Qwen2_5OmniProcessor.from_pretrained("Qwen/Qwen2.5-Omni-3B")
+processor = Qwen2_5OmniProcessor.from_pretrained("Qwen/Qwen2.5-Omni-7B")
 
 # model = Qwen2_5OmniForConditionalGeneration.from_pretrained(
 #     "Qwen/Qwen2.5-Omni-3B",
@@ -59,43 +60,66 @@ processor = Qwen2_5OmniProcessor.from_pretrained("Qwen/Qwen2.5-Omni-3B")
 # %%
 prompt = """
 
-You are a video question answering model. You will be given a video URL and a question about the video. Your task has 6 steps:
+You are a video question answering model. You will be given a video URL and a question about the video. Your task has 2 steps:
 
-(1) Identify the correct answer to the provided question based on the content of the video. If it cannot be answered, you are to indicate that the question is not answerable by returning "Cannot be answered" as the answer.
-(2) Ground your answer in a specific timestamp of the video that you found the answer in.
-(3) Determine the quality of the answer based on how well it is supported by the video content. The quality can be "high", "medium", or "low". A high quality answer is one that is directly supported by the video content, a medium quality answer is one that is somewhat supported by the video content, and a low quality answer is one that is not well supported by the video content.
-(4) Determine whether the question can be answered from the video content. If you were able to answer the question from step (1), set answerable to true. If your response was "Cannot be answered", set the answerable field to false
-(5) Determine the modality that the answer was found. Your options are "video," "text," or "audio." You should include as many as possible, but if you can only find the answer in one modality, you should only include that one. If the answer was found in the video content, set the modality to "video". If the answer was found in the audio content, set the modality to "audio". If the answer was found in the text content, set the modality to "text". If you could not answer the question, set the modality to "none."
-(6) Paraphrase the correct answer to the question 4 different times to create 4 incorrect answers. These answers should be semantically simialar to the correct answer, possibly includeing the correct answer inside them, but with extra information taht makes them incorrect. For example, if the correct answer is "Washing your hair twice gives you cleaner hair and better lather," and incorrect answer could be "Washing hair  twice puts bugs in your hair."
+(1) Identify the correct answer to the provided question based on the content of the video. If it cannot be answered, you are to indicate that the question is not answerable by returning "Cannot be answered" as the answer. Your answer should be extremely syntactically similar to how the examples below are written.
+(2) Paraphrase the correct answer to the question 9 different times to create 9 incorrect answers. These answers should be semantically simialar to the correct answer, possibly includeing the correct answer inside them, but with extra information taht makes them incorrect. For example, if the correct answer is "Washing your hair twice gives you cleaner hair and better lather," and incorrect answer could be "Washing hair  twice puts bugs in your hair."
 
 You will output your answer in a json in the following format:
 
 {
-  "video_url": <the url provided in the prompt>,
-  "question": <the question you are answering, provided in the prompt>,
   "correct_answer": <the correct answer to the question>,
-  "incorrect_answers": [ <4 incorrect answers to the question> ],
-  "timestamp": <the timestamp in the video where the answer can be found>,
-  "quality": <the quality of the answer, either "high", "medium", or "low">,
-  "answerable": <true or false, whether the question can be answered from the video>,
-  "modality": <"video", "audio", or "text", depending on the modality in which you found the answer>,
+  "incorrect_answers": [ <9 incorrect answers to the question> ]
 }
 
-Here is an example of a properly filled out response:
+Here is an example of a properly filled out response. All of your answers should try and match the writing style of the examples below as closely as possible. Look at how they phrase their answers at match that semantic style when generating yours. For brevity, they only have 5 total answers. Yours will need to have 10.
 
 {
-  "video_url": "https://www.youtube.com/watch?v=BT1-7xs4k3Y",
-  "question": "What happens after a father takes a bite of his daughters noodles?",
   "correct_answer": "The father begins to choke of them regretting he had asked for some.",
   "incorrect_answers": [
     "The man threw up.",
     "The man ate the whole bowl.",
     "The man threw it in the trash."
   ],
-  "timestamp": "2025-07-14T00:57:02.017Z",
-  "quality": "poor",
-  "answerable": false,
-  "modality": "audio or video"
+}
+
+{
+  "correct_answer": "After kissing in a car they are kissing in the ocean.",
+  "incorrect_answers": [
+    "They go to dinner.",
+    "The sit on a beach.",
+    "They look for their dog."
+  ],
+}
+
+{
+  "question": "Why do the men keep riding their motorcycles through water?",
+  "correct_answer": "The motorcycles are made for water.",
+  "incorrect_answers": [
+    "They are better on dry land.",
+    "They are test driving the motorcycles.",
+    "They can climb up trees."
+  ],
+}
+
+{
+  "correct_answer": "The two men shook hands and bumped each other in a form of agreement and brotherhood.",
+  "incorrect_answers": [
+    "The two men shook hands and bumped each other because The two men shook hands and bumped each other because they were upset.\n",
+    "The two men shook hands and bumped each other because the were crying.",
+    "The two men shook hands and bumped each other because  their wives joined them."
+  ],
+}
+
+{
+  "video_url": "https://www.youtube.com/watch?v=CbRNu0FBRv8",
+  "question": "when does the man scroll the screen  on his phone?",
+  "correct_answer": "Before showing the screen to the woman",
+  "incorrect_answers": [
+    "After showing the screen to the woman",
+    "As he shows the screen to the woman",
+    "he does not scroll at all"
+  ],
 }
 
 """
@@ -106,6 +130,14 @@ def find_mp4_for_json(file_stem, video_dir):
         if not matches:
             return None
         return matches[0]
+
+def extract_json_from_text(text):
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+
+    return json.loads(text.split("assistant\n")[-1].strip())
 
 def generate_qa(file_name, prompt, question):
     work = pathlib.Path(tempfile.mkdtemp())
@@ -193,6 +225,15 @@ def generate_qa(file_name, prompt, question):
 from pathlib import Path
 import json
 
+def combined_data(original, answers):
+    new = {}
+    new['video_url'] = original['video_url']
+    new['question'] = original['question']
+    new['correct_answer'] = answers['correct_answer']
+    new['incorrect_answers'] = answers['incorrect_answers']
+    return new
+
+
 for file in Path(JSON_DIR).iterdir():
     # Clear everything before each video
     free_cuda("loop-start")
@@ -215,13 +256,20 @@ for file in Path(JSON_DIR).iterdir():
     
 
     answers = generate_qa(file.stem, prompt, data["question"])
+
+    print("\n\n\n\n")
+
+    print("Generated answer:")
+    print(answers)
+
+    print("\n\n\n\n")
+
     
     # Parse and save
-    parsed_data = json.loads(answers)
+    parsed_data = extract_json_from_text(answers)
+    final_json = combined_data(data, parsed_data)
     with open(f"/brtx/605-nvme1/kguerre6/quen2.5Omni_QA/{file_name}", "w") as f:
-        json.dump(parsed_data, f, indent=2)
+        json.dump(final_json, f, indent=2)
     
     # Cleanup after each video
     free_cuda("loop-end")
-    
-    break

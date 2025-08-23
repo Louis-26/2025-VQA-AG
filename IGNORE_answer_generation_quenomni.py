@@ -62,19 +62,13 @@ You are a video question answering model. You will be given a video URL and a qu
 (3) Determine the quality of the answer based on how well it is supported by the video content. The quality can be "high", "medium", or "low". A high quality answer is one that is directly supported by the video content, a medium quality answer is one that is somewhat supported by the video content, and a low quality answer is one that is not well supported by the video content.
 (4) Determine whether the question can be answered from the video content. If you were able to answer the question from step (1), set answerable to true. If your response was "Cannot be answered", set the answerable field to false
 (5) Determine the modality that the answer was found. Your options are "video," "text," or "audio." You should include as many as possible, but if you can only find the answer in one modality, you should only include that one. If the answer was found in the video content, set the modality to "video". If the answer was found in the audio content, set the modality to "audio". If the answer was found in the text content, set the modality to "text". If you could not answer the question, set the modality to "none."
-(6) Paraphrase the correct answer to the question 4 different times to create 4 incorrect answers. These answers should be semantically simialar to the correct answer, possibly includeing the correct answer inside them, but with extra information taht makes them incorrect. For example, if the correct answer is "Washing your hair twice gives you cleaner hair and better lather," and incorrect answer could be "Washing hair  twice puts bugs in your hair."
+(6) Paraphrase the correct answer to the question 9 different times to create 4 incorrect answers. These answers should be semantically simialar to the correct answer, possibly includeing the correct answer inside them, but with extra information taht makes them incorrect. For example, if the correct answer is "Washing your hair twice gives you cleaner hair and better lather," and incorrect answer could be "Washing hair  twice puts bugs in your hair."
 
-You will output your answer in a json in the following format:
+You will output your answer in a json in the following format. Return ONLY a single JSON object that follows this schema. No extra words, no markdown.
 
 {
-  "video_url": <the url provided in the prompt>,
-  "question": <the question you are answering, provided in the prompt>,
   "correct_answer": <the correct answer to the question>,
-  "incorrect_answers": [ <4 incorrect answers to the question> ],
-  "timestamp": <the timestamp in the video where the answer can be found>,
-  "quality": <the quality of the answer, either "high", "medium", or "low">,
-  "answerable": <true or false, whether the question can be answered from the video>,
-  "modality": <"video", "audio", or "text", depending on the modality in which you found the answer>,
+  "incorrect_answers": [ <9 incorrect answers to the question> ],
 }
 
 Here is an example of a properly filled out response:
@@ -250,6 +244,13 @@ for file in folder_path.iterdir():
     
 
     answers = generate_qa(file.stem, prompt, data["video_url"], data["question"])
+
+    print("\n\n\n\n")
+
+    print("Generated answer:")
+    print(answers)
+
+    print("\n\n\n\n")
     
     # Parse and save
     parsed_data = json.loads(answers)
