@@ -4,20 +4,13 @@ A flexible and research-oriented framework for the **TRECVID 2025 Video Question
 
 **Official Task Details**: https://www-nlpir.nist.gov/projects/tv2025/vqa.html
 
-## What's New (Zero-shot Qwen2.5‑VL pipeline)
+## What's New
 
-- **Qwen 2.5‑VL 7B Instruct integration** for zero-shot video VQA
-  - Config: `Qwen/Qwen2.5-VL-7B-Instruct` in `src/ag_task/model_configs.py`
-  - New specialized loader: `QwenVQAModel` in `src/ag_task/vqa_model.py` (native video handling via processor)
-- **Robust data loading for your JSON format**: `src/ag_task/json_data_loader.py`
-- **End-to-end inference script**: `run_zeroshot_vqa.py`
-  - Skips missing/corrupted videos gracefully
-  - Generates 16 candidates per item and de-duplicates to top‑10
-- **Critic reranking with LLaVA‑Critic (separate env)**: `scripts/run_rerank_with_critic.py`
-  - Uses sampled frames from videos and judges cand. answers; requires `lmms-lab/llava-critic-7b`
-  - Loads with `attn_implementation="sdpa"` to avoid FlashAttention2 deps
-- **Evaluation**: `evaluation/evaluate_ag_results.py`
-  - Reports ROUGE‑L, METEOR, BERTScore, STS; optional text normalization
+- Zero-shot Qwen2.5‑VL pipeline for AG (see below)
+- Pointer‑List Reranker (Qwen‑2.5‑VL LoRA) with special tokens, rank‑weighted CE, and batched constrained decoding
+  - Dataset builder from CSV/XLSX candidates: `scripts/build_reranker_dataset.py`
+  - LoRA trainer (text‑only by default; optional video mode): `scripts/train_reranker.py`
+  - Fast eval with batched per‑rank decoding: `scripts/eval_reranker.py`
 
 ### Minimal end-to-end usage
 
@@ -54,6 +47,56 @@ python evaluation/evaluate_ag_results.py \
   --json_files_dir /brtx/603-nvme1/yweng13/VQA/train_json_files \
   --normalize
 ```
+
+## Pointer‑List Reranker (Qwen‑2.5‑VL, LoRA)
+
+Trains Qwen‑2.5‑VL to emit a ranked list of candidate IDs using special tokens: `<R1>…<R10>`, `<CAND_1>…<CAND_16>`, `<ENDLIST>`.
+
+### Build dataset from candidates (CSV or XLSX)
+```bash
+python scripts/build_reranker_dataset.py \
+  --candidates_csv "/path/to/qwen_candidates.xlsx" \
+  --json_dir /brtx/603-nvme1/yweng13/VQA/train_json_files \
+  --out_jsonl submissions/reranker_train.jsonl
+```
+
+Notes:
+- CSV columns required: `Q_ID,Video_ID,Rank,Answer` (extra columns are ignored). Malformed lines are skipped.
+- XLSX requires `openpyxl`.
+
+### Train (LoRA, text‑only)
+```bash
+python scripts/train_reranker.py \
+  --model Qwen/Qwen2.5-VL-7B-Instruct \
+  --train_jsonl submissions/reranker_train.jsonl \
+  --output_dir outputs/reranker-lora \
+  --lr 1e-4 --batch_size 8 --epochs 3 \
+  --w1 4.0 --w2 2.0 --w3 1.2 \
+  --use_lora --lora_r 16 --lora_alpha 32 --lora_dropout 0.05
+```
+
+Optional video mode (heavy): `--use_video --videos_dir /path/to/videos --num_frames 32` (AV1 videos are skipped if frames can’t be decoded).
+
+### Create a train/dev split
+```bash
+python scripts/split_jsonl.py \
+  --input_jsonl submissions/reranker_train.jsonl \
+  --out_train_jsonl submissions/reranker_train.train.jsonl \
+  --out_dev_jsonl submissions/reranker_train.dev.jsonl \
+  --dev_size 100 --seed 42
+```
+
+### Evaluate (batched constrained decoding)
+```bash
+python scripts/eval_reranker.py \
+  --model Qwen/Qwen2.5-VL-7B-Instruct \
+  --adapters outputs/reranker-lora \
+  --jsonl submissions/reranker_train.dev.jsonl \
+  --max_examples 200 --batch_size 16
+```
+
+Metrics: Top‑1, NDCG@10, and list validity (no repeats).
+
 
 ### LLaVA‑Critic environment tip
 

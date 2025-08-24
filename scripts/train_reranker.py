@@ -7,7 +7,7 @@ from transformers import AutoTokenizer, AutoConfig, Trainer, TrainingArguments
 from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLForConditionalGeneration
 from peft import LoraConfig, get_peft_model
 
-from src.reranker.data import RerankerJsonlDataset, PointerListCollator
+from src.reranker.data import RerankerJsonlDataset, PointerListCollator, VideoPointerCollator
 from src.reranker.tokens import add_special_tokens_to_tokenizer
 from src.reranker.losses import masked_pointer_ce_with_rank_weights
 
@@ -51,6 +51,10 @@ def main():
     p.add_argument("--lr", type=float, default=2e-6)
     p.add_argument("--batch_size", type=int, default=1)
     p.add_argument("--epochs", type=int, default=1)
+    # Video options
+    p.add_argument("--use_video", action="store_true")
+    p.add_argument("--videos_dir", type=str, default="/brtx/603-nvme1/yweng13/VQA/my_train_videos")
+    p.add_argument("--num_frames", type=int, default=64)
     # Rank weights
     p.add_argument("--w1", type=float, default=3.0, help="Rank 1 weight")
     p.add_argument("--w2", type=float, default=1.5, help="Rank 2 weight")
@@ -120,7 +124,12 @@ def main():
         pass
 
     train_ds = RerankerJsonlDataset(args.train_jsonl)
-    data_collator = PointerListCollator(tokenizer)
+    if args.use_video:
+        from transformers import AutoProcessor
+        processor = AutoProcessor.from_pretrained(args.model, trust_remote_code=True)
+        data_collator = VideoPointerCollator(processor, videos_dir=args.videos_dir, num_frames=args.num_frames)
+    else:
+        data_collator = PointerListCollator(tokenizer)
 
     rank_weights = {1: args.w1, 2: args.w2, 3: args.w3}
 

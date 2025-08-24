@@ -40,7 +40,29 @@ def _load_jsons_by_video(json_dir: str) -> Dict[str, Dict[str, Any]]:
 
 
 def _collect_generated_answers(csv_path: str) -> Dict[Tuple[str, str], List[str]]:
-    df = pd.read_csv(csv_path)
+    """Load candidates from CSV or Excel (.xlsx/.xls).
+
+    - For CSV: robust parsing with python engine and skipping bad lines.
+    - For Excel: read first sheet and select required columns.
+    """
+    lower = csv_path.lower()
+    usecols = ["Q_ID", "Video_ID", "Rank", "Answer"]
+    if lower.endswith(".xlsx") or lower.endswith(".xls"):
+        try:
+            df = pd.read_excel(csv_path, engine="openpyxl", usecols=usecols, dtype={
+                "Q_ID": str, "Video_ID": str, "Rank": int, "Answer": str,
+            })
+        except ImportError as e:
+            raise RuntimeError("Reading .xlsx requires openpyxl. Please install: pip install openpyxl") from e
+    else:
+        # CSV path
+        df = pd.read_csv(
+            csv_path,
+            engine="python",
+            on_bad_lines="skip",
+            usecols=usecols,
+            dtype={"Q_ID": str, "Video_ID": str, "Rank": int, "Answer": str},
+        )
     grouped: Dict[Tuple[str, str], List[str]] = {}
     for _, row in df.iterrows():
         key = (row["Q_ID"], row["Video_ID"])
