@@ -17,12 +17,19 @@ def enumerate_and_shuffle_candidates(raw_candidates: List[str]) -> Tuple[List[st
 
     Returns (lines, mapping) where lines are like "<CAND_3>: text" and mapping is cand_id->text.
     """
-    indices = list(range(1, len(raw_candidates) + 1))
-    random.shuffle(indices)
+    # Randomize display order AND candidate ID assignment independently
+    n = len(raw_candidates)
+    order_perm = list(range(n))
+    random.shuffle(order_perm)
+    texts_shuffled = [raw_candidates[i] for i in order_perm]
+
+    id_indices = list(range(1, n + 1))
+    random.shuffle(id_indices)
+
     lines: List[str] = []
     id_to_text: Dict[str, str] = {}
-    for i, text in zip(indices, raw_candidates):
-        cand_id = CAND_TOKEN_TEMPLATE.format(idx=i)
+    for idx_id, text in zip(id_indices, texts_shuffled):
+        cand_id = CAND_TOKEN_TEMPLATE.format(idx=idx_id)
         lines.append(f"{cand_id}: {text}")
         id_to_text[cand_id] = text
     return lines, id_to_text
@@ -51,11 +58,19 @@ def format_reranker_prompt(
     asr_transcript: str,
     candidate_texts: List[str],
     reasoning_hint: Optional[str] = None,
+    candidate_lines: Optional[List[str]] = None,
 ) -> str:
     """
     Create the input text to condition the model. Video frames are supplied separately to the model.
+
+    If candidate_lines is provided, it will be used verbatim to ensure candidate IDs
+    stay consistent with any precomputed mapping (e.g., used for targets). Otherwise,
+    candidate IDs will be (re)enumerated from candidate_texts.
     """
-    cand_lines, _ = enumerate_and_shuffle_candidates(candidate_texts)
+    if candidate_lines is None:
+        cand_lines, _ = enumerate_and_shuffle_candidates(candidate_texts)
+    else:
+        cand_lines = candidate_lines
     parts: List[str] = []
     parts.append(f"Question: {question}")
     if asr_transcript:

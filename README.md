@@ -1,348 +1,111 @@
 # TRECVID 2025 VQA Research Framework
 
-A flexible and research-oriented framework for the **TRECVID 2025 Video Question Answering Challenge**, designed for experimenting with advanced multimodal models, grounding techniques, and synthetic data augmentation.
+Framework for the TRECVID 2025 Video Question Answering challenge with:
+- Zero‑shot Answer Generation (Qwen2.5‑VL, optional vLLM)
+- Pointer‑List Reranker (Qwen2.5‑VL + LoRA)
+- LLaVA‑Critic based reranking
+- Evaluation utilities
 
-**Official Task Details**: https://www-nlpir.nist.gov/projects/tv2025/vqa.html
+Official task: https://www-nlpir.nist.gov/projects/tv2025/vqa.html
 
-## What's New
+## Implemented components
+- Answer generation pipelines
+  - `run_zeroshot_vqa.py`: Qwen2.5‑VL (transformers) or vLLM (`model_config=qwen_vl_chat|qwen_vl_chat_vllm`).
+- Pointer‑List Reranker (text‑only by default)
+  - Dataset builder: `scripts/build_reranker_dataset.py`
+    - FIX: Candidate enumeration is now consistent between prompt and target. The builder uses a single enumeration for both, guaranteeing `<R1>` points to the gold candidate ID in the prompt.
+  - Trainer: `scripts/train_reranker.py` (Qwen2.5‑VL + LoRA, rank‑weighted CE, pointer masking)
+  - Eval: `scripts/eval_reranker.py` (batched constrained decoding, Top‑1/NDCG@10)
+- LLaVA‑Critic reranker: `scripts/run_rerank_with_critic.py` (scores and reranks generator candidates from frames + question)
 
-- Zero-shot Qwen2.5‑VL pipeline for AG (see below)
-- Pointer‑List Reranker (Qwen‑2.5‑VL LoRA) with special tokens, rank‑weighted CE, and batched constrained decoding
-  - Dataset builder from CSV/XLSX candidates: `scripts/build_reranker_dataset.py`
-  - LoRA trainer (text‑only by default; optional video mode): `scripts/train_reranker.py`
-  - Fast eval with batched per‑rank decoding: `scripts/eval_reranker.py`
+## Quickstart
 
-### Minimal end-to-end usage
-
+### 1) Build reranker dataset from generator candidates
+Input: CSV/XLSX with columns `Q_ID,Video_ID,Rank,Answer` and JSONs with `question`, `correct_answer`, `incorrect_answers`.
 ```bash
-# 1.a) Generate candidates with Qwen 2.5‑VL (zero-shot) 
+python scripts/build_reranker_dataset.py \
+  --candidates_csv "/path/to/qwen_candidates.xlsx" \
+  --json_dir /brtx/603-nvme1/yweng13/VQA/train_json_files \
+  --teacher_model sentence-transformers/all-MiniLM-L6-v2 \
+  --out_jsonl submissions/reranker_train_teacher.jsonl
+```
+
+Split into train/dev:
+```bash
+python scripts/split_jsonl.py \
+  --input_jsonl submissions/reranker_train_teacher.jsonl \
+  --out_train_jsonl submissions/reranker_train_teacher.train.jsonl \
+  --out_dev_jsonl submissions/reranker_train_teacher.dev.jsonl \
+  --dev_ratio 0.1 --seed 42
+```
+
+### 2) Train reranker (text‑only, LoRA)
+```bash
+python scripts/train_reranker.py \
+  --train_jsonl submissions/reranker_train_teacher.train.jsonl \
+  --val_jsonl submissions/reranker_train_teacher.dev.jsonl \
+  --output_dir outputs/reranker_lora \
+  --use_lora --epochs 1 --batch_size 1 --lr 2e-6 --w1 3.0 --w2 1.5 --w3 1.2
+```
+
+Optional video mode (heavier): add `--use_video --videos_dir /path/to/videos --num_frames 64`.
+
+### 3) Evaluate reranker (constrained decoding)
+```bash
+python scripts/eval_reranker.py \
+  --jsonl submissions/reranker_train_teacher.dev.jsonl \
+  --adapters outputs/reranker_lora \
+  --max_examples 200 --batch_size 16
+```
+Outputs: Top‑1, NDCG@10, validity (no repeats).
+
+### 4) Zero‑shot candidate generation (optional)
+```bash
 python run_zeroshot_vqa.py \
   --model_config qwen_vl_chat \
   --videos_dir /brtx/603-nvme1/yweng13/VQA/my_train_videos \
   --json_files_dir /brtx/603-nvme1/yweng13/VQA/train_json_files \
   --num_answers 16 \
-  --max_videos -1 \
   --output submissions/qwen_candidates.csv
+```
 
-# 1.b) Generate candidates with Qwen 2.5‑VL vllm (zero-shot) 
-python run_zeroshot_vqa.py \
-  --model_config qwen_vl_chat_vllm \
-  --videos_dir /brtx/603-nvme1/yweng13/VQA/my_train_videos \
-  --json_files_dir /brtx/603-nvme1/yweng13/VQA/train_json_files \
-  --num_answers 16 \
-  --max_videos -1 \
-  --output submissions/qwen_candidates.csv
-
-# 2) Rerank with LLaVA‑Critic (run in separate vqa-critic env)
+### 5) Rerank with LLaVA‑Critic (optional)
+```bash
 python -m scripts.run_rerank_with_critic \
-  --candidates_csv submissions/qwen_candidates_small.csv \
+  --candidates_csv submissions/qwen_candidates.csv \
   --json_dir /brtx/603-nvme1/yweng13/VQA/train_json_files \
   --videos_dir /brtx/603-nvme1/yweng13/VQA/my_train_videos \
   --output_csv submissions/qwen_candidates.reranked.csv \
   --max_images 8 --max_decode_frames 256
-
-# 3) Evaluate
-python evaluation/evaluate_ag_results.py \
-  --pred_file submissions/qwen_candidates.reranked.csv \
-  --json_files_dir /brtx/603-nvme1/yweng13/VQA/train_json_files \
-  --normalize
 ```
 
-## Pointer‑List Reranker (Qwen‑2.5‑VL, LoRA)
+## How the reranker works
+- Prompt contains: Question, optional ASR, and a “Candidates:” block with `<CAND_i>: text` lines.
+- Target is a pointer list: `<R1>=<CAND_j>`, `<R2>=<CAND_k>`, … `<ENDLIST>`.
+- Training loss: rank‑weighted CE with vocabulary constraints at pointer positions (only remaining `<CAND_*>` or `<ENDLIST>` are allowed). Early ranks receive higher weights.
+- Teacher ordering (optional): tail ranks ordered by sentence‑embedding similarity to the gold.
 
-Trains Qwen‑2.5‑VL to emit a ranked list of candidate IDs using special tokens: `<R1>…<R10>`, `<CAND_1>…<CAND_16>`, `<ENDLIST>`.
+## Notes
+- XLSX input requires `openpyxl`.
+- Some AV1 videos may fail to decode; such samples are skipped with warnings.
+- If your git ignore excludes `submissions/*.csv`, force‑add as needed.
 
-### Build dataset from candidates (CSV or XLSX)
-```bash
-python scripts/build_reranker_dataset.py \
-  --candidates_csv "/path/to/qwen_candidates.xlsx" \
-  --json_dir /brtx/603-nvme1/yweng13/VQA/train_json_files \
-  --out_jsonl submissions/reranker_train.jsonl
+## Repo structure (key files)
 ```
-
-Notes:
-- CSV columns required: `Q_ID,Video_ID,Rank,Answer` (extra columns are ignored). Malformed lines are skipped.
-- XLSX requires `openpyxl`.
-
-### Train (LoRA, text‑only)
-```bash
-python scripts/train_reranker.py \
-  --model Qwen/Qwen2.5-VL-7B-Instruct \
-  --train_jsonl submissions/reranker_train.jsonl \
-  --output_dir outputs/reranker-lora \
-  --lr 1e-4 --batch_size 8 --epochs 3 \
-  --w1 4.0 --w2 2.0 --w3 1.2 \
-  --use_lora --lora_r 16 --lora_alpha 32 --lora_dropout 0.05
-```
-
-Optional video mode (heavy): `--use_video --videos_dir /path/to/videos --num_frames 32` (AV1 videos are skipped if frames can’t be decoded).
-
-### Create a train/dev split
-```bash
-python scripts/split_jsonl.py \
-  --input_jsonl submissions/reranker_train.jsonl \
-  --out_train_jsonl submissions/reranker_train.train.jsonl \
-  --out_dev_jsonl submissions/reranker_train.dev.jsonl \
-  --dev_size 100 --seed 42
-```
-
-### Evaluate (batched constrained decoding)
-```bash
-python scripts/eval_reranker.py \
-  --model Qwen/Qwen2.5-VL-7B-Instruct \
-  --adapters outputs/reranker-lora \
-  --jsonl submissions/reranker_train.dev.jsonl \
-  --max_examples 200 --batch_size 16
-```
-
-Metrics: Top‑1, NDCG@10, and list validity (no repeats).
-
-
-### LLaVA‑Critic environment tip
-
-- Install LLaVA‑NeXT and pins:
-  - `pip install --no-cache-dir git+https://github.com/LLaVA-VL/LLaVA-NeXT.git@main`
-  - `pip install "transformers==4.43.3" "huggingface_hub==0.24.2" "accelerate==0.33.0"`
-  - `pip install av einops open-clip-torch timm`
-- The reranker loads with `attn_implementation="sdpa"` by default.
-
-### Notes
-
-- Missing videos are skipped with a warning; run will continue.
-- `.gitignore` ignores `submissions/*.csv`, so force-add when committing results.
-
-## 🚀 Key Features
-
-- **🔄 Flexible Model Architecture**: Easy swapping between different VQA models (ViT+T5, LLaVA, InstructBLIP, etc.)
-- **🎯 Grounding & Alignment**: Retrieval-augmented generation and cross-verification to reduce hallucination
-- **🤖 Synthetic Data Generation**: Template-based, LLM-based, and back-translation approaches for data augmentation
-- **⚙️ Configuration-Driven**: JSON-based model and pipeline configurations
-- **📊 Research-Ready**: Built for experimentation with state-of-the-art techniques
-
-## 📋 Challenge Tasks
-
-### 1. Answer Generation (AG) Task
-Generate up to 10 ranked natural language answers for video questions.
-- **Input**: Video (~30 seconds) + Question
-- **Output**: Ranked answers with confidence scores and timing
-- **Evaluation**: NDCG, STS, METEOR, BERTScore
-
-### 2. Multiple Choice (MC) Task *(TODO)*
-Rank 4 provided answer options for video questions.
-
-## 🛠️ Quick Start
-
-### Installation
-```bash
-# Clone the repository
-git clone <your-repo-url>
-cd trec-project-template
-
-# Set up environment with uv
-uv venv
-source .venv/bin/activate
-uv pip install -e .
-```
-
-### Basic Usage
-```bash
-# List available model configurations
-python run_ag_task.py --list_configs
-
-# Run Answer Generation with baseline model
-python run_ag_task.py \
-    --topics_file data/sample_topics.csv \
-    --videos_dir data/videos/ \
-    --output_file submissions/team_ag_run1.csv \
-    --model_config baseline_encoder_decoder
-
-# Run with grounding enabled (experimental)
-python run_ag_task.py \
-    --topics_file data/sample_topics.csv \
-    --videos_dir data/videos/ \
-    --output_file submissions/team_ag_run2.csv \
-    --model_config improved_encoder_decoder \
-    --enable_grounding \
-    --grounding_config configs/grounding_config.json
-```
-
-### Generate Synthetic Training Data
-```bash
-# Generate synthetic Q&A pairs for training
-python generate_synthetic_qa.py \
-    --videos_dir data/training_videos/ \
-    --output_file data/synthetic_qa_pairs.csv \
-    --pairs_per_video 5 \
-    --config_file configs/synthetic_qa_config.json
-```
-
-## 🏗️ Architecture Overview
-
-### Core Components
-
-```
+├── scripts/
+│   ├── build_reranker_dataset.py   # Build JSONL from generator candidates + GT
+│   ├── train_reranker.py           # LoRA training (text‑only by default; optional video)
+│   ├── eval_reranker.py            # Batched constrained decoding eval
+│   └── split_jsonl.py              # Train/dev split utility
+├── src/reranker/
+│   ├── prompter.py                 # Candidate enumeration, prompt/target formatting
+│   ├── losses.py, masking.py       # Rank‑weighted CE, pointer masking
+│   ├── decoding.py                 # Greedy/batched pointer decoding
+│   └── tokens.py                   # Special token registration
 ├── src/ag_task/
-│   ├── vqa_model.py          # Abstract model interface + HuggingFace implementations
-│   ├── model_configs.py      # Pre-defined model configurations
-│   ├── grounding.py          # Grounding and evidence retrieval
-│   ├── synthetic_qa.py       # Synthetic data generation
-│   └── data_loader.py        # Data loading utilities
-├── src/utils/
-│   └── video_processing.py   # Video frame extraction
-├── configs/                  # Configuration files
-├── run_ag_task.py           # Main inference script
-└── generate_synthetic_qa.py  # Synthetic data generation script
+│   ├── vqa_model_vllm.py           # vLLM + transformers Qwen2.5‑VL inference
+│   └── critic_reranker.py          # LLaVA‑Critic wrapper
 ```
 
-### Model Configurations
-
-| Config Name | Description | Models Used |
-|-------------|-------------|-------------|
-| `baseline_encoder_decoder` | Basic ViT + T5 model | ViT-Base + FLAN-T5-Base |
-| `improved_encoder_decoder` | Larger model for better performance | ViT-Large + FLAN-T5-Large |
-| `instructblip` | InstructBLIP multimodal model | InstructBLIP-Vicuna-7B |
-| `llava` | LLaVA vision-language model | LLaVA-1.5-7B |
-| `grounded_vqa` | VQA with grounding features | ViT + T5 + CLIP grounding |
-
-## 🎯 Research Integration Points
-
-### 1. Multimodal Grounding & Alignment
-Based on "[End-to-End Video Question-Answer Generation with Generator-Pretester Network](https://arxiv.org/abs/2101.01447)"
-
-**Implementation Status**: 🚧 Framework ready, models to be integrated
-
-**Key Features**:
-- **Retrieval-Augmented Grounding**: Retrieve relevant video frames as evidence for each answer
-- **Cross-Verification**: Use pretester approach to validate answers against video content
-- **Evidence Tracking**: Frame indices, similarity scores, visual concepts
-
-**Usage**:
-```python
-# Enable grounding in your pipeline
-grounding_config = {
-    "enable_retrieval_grounding": True,
-    "enable_cross_verification": True,
-    "similarity_threshold": 0.7
-}
-```
-
-### 2. Synthetic Q&A Augmentation
-Based on "[LongCaptioning: Unlocking the Power of Long Video Caption Generation](https://arxiv.org/abs/2502.15393)"
-
-**Implementation Status**: ✅ Framework complete, LLM integration ready
-
-**Strategies**:
-- **Template-Based**: Predefined question patterns (baseline)
-- **LLM-Based**: GPT-4V, Qwen-VL-Chat for diverse Q&A generation
-- **Back-Translation**: Convert captions to question-answer pairs
-
-**Usage**:
-```python
-# Generate synthetic data with multiple strategies
-synthetic_config = {
-    "enable_template_generation": True,
-    "enable_llm_generation": True,  # Requires API key
-    "enable_back_translation": True
-}
-```
-
-### 3. Advanced Model Integration
-
-**Supported Model Families**:
-- **Vision-Encoder-Decoder**: ViT + T5/FLAN-T5
-- **Unified Multimodal**: LLaVA, InstructBLIP, Qwen-VL
-- **Custom Models**: Easy to add via abstract interface
-
-**Adding New Models**:
-```python
-# Add to src/ag_task/model_configs.py
-"your_model": {
-    "family": "huggingface",
-    "type": "unified_multimodal",
-    "model_name": "your-org/your-model",
-    "description": "Your model description"
-}
-```
-
-## 📊 Evaluation & Submission
-
-### TRECVID 2025 Submission Format
-```csv
-Q_ID, Video_ID, Rank, Answer, Time (sec)
-1, tui89Xr_iri, 1, she found a surprise birthday party, 5.2341
-1, tui89Xr_iri, 2, she found a party, 5.2341
-...
-```
-
-### Evaluation Metrics
-- **Primary**: NDCG (Normalized Discounted Cumulative Gain)
-- **Secondary**: STS, METEOR, BERTScore
-- **Efficiency**: Generation time per answer
-
-## 📁 Repository Structure
-
-```
-├── src/                      # Source code
-│   ├── ag_task/             # Answer Generation implementation
-│   ├── mc_task/             # Multiple Choice (TODO)
-│   └── utils/               # Shared utilities
-├── configs/                 # Configuration files
-├── data/                    # Dataset and samples
-├── docs/                    # Task documentation
-├── notebooks/               # Research notebooks
-├── submissions/             # Output submissions
-├── run_ag_task.py          # Main AG script
-├── generate_synthetic_qa.py # Synthetic data script
-└── README.md               # This file
-```
-
-## 🔬 Research Roadmap
-
-### Phase 1: Foundation ✅
-- [x] Flexible model interface
-- [x] Basic VQA pipeline
-- [x] Configuration system
-- [x] Grounding framework
-- [x] Synthetic data framework
-
-### Phase 2: Model Integration 🚧
-- [ ] LLaVA integration
-- [ ] InstructBLIP integration
-- [ ] CLIP-based grounding
-- [ ] GPT-4V synthetic generation
-
-### Phase 3: Advanced Features 📋
-- [ ] Video-specific models (VideoChatGPT)
-- [ ] Temporal reasoning
-- [ ] Multi-modal fusion techniques
-- [ ] Evaluation framework
-
-## 📚 Key Research Papers
-
-1. **[End-to-End Video Question-Answer Generation with Generator-Pretester Network](https://arxiv.org/abs/2101.01447)** - Generator-Pretester approach for grounding
-2. **[LongCaptioning: Unlocking the Power of Long Video Caption Generation](https://arxiv.org/abs/2502.15393)** - Long video understanding and captioning
-3. **[Evaluating Multimodal Large Language Models on Video Captioning via Monte Carlo Tree Search](https://arxiv.org/abs/2506.11155)** - Advanced evaluation methods
-
-## 🤝 Contributing
-
-This framework is designed for research collaboration. Key extension points:
-
-1. **Add new models**: Implement `BaseVQAModel` interface
-2. **Enhance grounding**: Extend `BaseGroundingModule`
-3. **Improve synthetic generation**: Add new `BaseSyntheticGenerator`
-4. **Evaluation metrics**: Contribute evaluation tools
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🎯 TRECVID 2025 Specific Notes
-
-- **Test Dataset**: ~2000 YouTube shorts (~30 seconds each)
-- **Submission Deadline**: TBA
-- **Maximum Submissions**: 3 runs per task per team
-- **File Format**: `teamname_ag_run1.csv`, `teamname_ag_run2.csv`, etc.
-
----
-
-*This framework provides a solid foundation for TRECVID 2025 VQA research while maintaining flexibility for advanced experimentation with grounding, synthetic data, and state-of-the-art multimodal models.*
+## License
+MIT. See `LICENSE`.

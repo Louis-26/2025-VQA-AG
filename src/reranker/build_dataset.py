@@ -2,6 +2,7 @@ import os
 import json
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional, Tuple
+import math
 
 import pandas as pd
 
@@ -73,24 +74,62 @@ def _collect_generated_answers(csv_path: str) -> Dict[Tuple[str, str], List[str]
 def _rank_tail_by_teacher_or_random(
     cand_ids: List[str],
     gold_cand_id: str,
+    id_to_text: Dict[str, str],
+    teacher: Optional["TeacherScorer"] = None,
 ) -> List[str]:
-    # Placeholder: random tail after GT. Can be replaced with teacher scores.
     import random
     others = [c for c in cand_ids if c != gold_cand_id]
-    random.shuffle(others)
-    return others
+    if teacher is None:
+        random.shuffle(others)
+        return others
+    # Score by similarity to gold answer text; higher is better
+    gold_text = id_to_text.get(gold_cand_id, "").strip()
+    scores = teacher.score_batch([id_to_text[o] for o in others], gold_text)
+    ranked = [x for _, x in sorted(zip(scores, others), key=lambda t: t[0], reverse=True)]
+    return ranked
+
+
+class TeacherScorer:
+    """Light wrapper for sentence-embedding similarity as teacher signal."""
+    def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2") -> None:
+        self.model_name = model_name
+        self.model = None
+
+    def _ensure(self):
+        if self.model is None:
+            try:
+                from sentence_transformers import SentenceTransformer
+            except Exception as e:
+                raise RuntimeError("Teacher scoring requires sentence-transformers. pip install sentence-transformers") from e
+            self.model = SentenceTransformer(self.model_name)
+
+    @staticmethod
+    def _cos_sim(a, b):
+        import numpy as np
+        a = a / (np.linalg.norm(a) + 1e-8)
+        b = b / (np.linalg.norm(b) + 1e-8)
+        return float((a * b).sum())
+
+    def score_batch(self, candidates: List[str], gold_text: str) -> List[float]:
+        self._ensure()
+        embs = self.model.encode([gold_text] + candidates, normalize_embeddings=False, show_progress_bar=False)
+        gold_emb = embs[0]
+        cand_embs = embs[1:]
+        return [self._cos_sim(c, gold_emb) for c in cand_embs]
 
 
 def build_examples(
     csv_candidates: str,
     json_dir: str,
     asr_by_video: Optional[Dict[str, str]] = None,
+    teacher_model: Optional[str] = None,
 ) -> List[RerankerExample]:
     asr_by_video = asr_by_video or {}
     gen_by_key = _collect_generated_answers(csv_candidates)
     meta_by_video = _load_jsons_by_video(json_dir)
 
     examples: List[RerankerExample] = []
+    teacher = TeacherScorer(teacher_model) if teacher_model else None
     for (q_id, video_id), gen_answers in gen_by_key.items():
         meta = meta_by_video.get(video_id)
         if not meta:
@@ -120,12 +159,13 @@ def build_examples(
         if gold_cid is None:
             # If gold text got lost by dedup (shouldn't), skip
             continue
-        ranked_tail = _rank_tail_by_teacher_or_random(list(id_to_text.keys()), gold_cid)
+        ranked_tail = _rank_tail_by_teacher_or_random(list(id_to_text.keys()), gold_cid, id_to_text, teacher)
         pointer_lines = build_pointer_list_target(gold_cid, ranked_tail, max_ranks=R_MAX_RANKS)
         prompt = format_reranker_prompt(
             question=question,
             asr_transcript=asr_by_video.get(video_id, ""),
             candidate_texts=deduped,
+            candidate_lines=cand_lines,
         )
 
         examples.append(
