@@ -92,10 +92,11 @@ class VideoPointerCollator:
     Expects each feature to include Q_ID, Video_ID, prompt, target and uses
     `videos_dir` to locate `<Video_ID>.mp4`. Samples `num_frames` evenly.
     """
-    def __init__(self, processor, videos_dir: str, num_frames: int = 64) -> None:
+    def __init__(self, processor, videos_dir: str, num_frames: int = 64, frame_size: Optional[int] = None) -> None:
         self.processor = processor
         self.videos_dir = videos_dir
         self.num_frames = num_frames
+        self.frame_size = frame_size
 
     def __call__(self, features: List[Dict[str, Any]]) -> Dict[str, Any]:
         from src.utils.video_processing import extract_frames
@@ -107,7 +108,7 @@ class VideoPointerCollator:
         for f in features:
             vid = f.get("Video_ID")
             video_path = f"{self.videos_dir}/{vid}.mp4"
-            frames = extract_frames(video_path, num_frames=self.num_frames)
+            frames = extract_frames(video_path, num_frames=self.num_frames, frame_size=self.frame_size)
             # Skip samples that fail to provide enough frames (e.g., AV1 decode failures)
             if frames.size == 0 or getattr(frames, "shape", (0,))[0] < self.num_frames:
                 continue
@@ -144,9 +145,10 @@ class VideoPointerCollator:
         )
         input_len = model_inputs["input_ids"].size(1)
         max_tgt = target_enc["input_ids"].size(1)
-        padded_labels = target_enc["input_ids"].new_full((len(features), input_len + max_tgt), -100)
+        batch_kept = len(videos)
+        padded_labels = target_enc["input_ids"].new_full((batch_kept, input_len + max_tgt), -100)
         # copy input ids into the front (ignored by -100 labels)
-        padded_inputs = model_inputs["input_ids"].new_zeros((len(features), input_len + max_tgt))
+        padded_inputs = model_inputs["input_ids"].new_zeros((batch_kept, input_len + max_tgt))
         padded_inputs[:, :input_len] = model_inputs["input_ids"]
         # place target ids after inputs
         padded_inputs[:, input_len:input_len + max_tgt] = target_enc["input_ids"]

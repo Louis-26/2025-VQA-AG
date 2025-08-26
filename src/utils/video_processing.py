@@ -1,8 +1,8 @@
 import cv2
 import numpy as np
-from typing import List
+from typing import List, Optional
 
-def extract_frames(video_path: str, num_frames: int = 16) -> np.ndarray:
+def extract_frames(video_path: str, num_frames: int = 16, frame_size: Optional[int] = None) -> np.ndarray:
     """
     Extracts a specified number of frames evenly spaced from a video.
 
@@ -12,8 +12,9 @@ def extract_frames(video_path: str, num_frames: int = 16) -> np.ndarray:
 
     Returns:
         np.ndarray: A numpy array of shape (num_frames, height, width, 3)
-                    containing the extracted frames. Returns an empty array if
-                    the video cannot be opened.
+                    containing the extracted frames. If frame_size is provided,
+                    frames are resized to (frame_size, frame_size). Returns an
+                    empty array if the video cannot be opened.
     """
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -37,6 +38,8 @@ def extract_frames(video_path: str, num_frames: int = 16) -> np.ndarray:
             break
             
         if current_frame_num == target_frame_idx:
+            if frame_size is not None and frame is not None:
+                frame = cv2.resize(frame, (frame_size, frame_size), interpolation=cv2.INTER_AREA)
             frames.append(frame)
             target_frame_idx = next(frame_idx_iterator, None)
         

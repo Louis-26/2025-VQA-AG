@@ -138,8 +138,8 @@ def build_examples(
         gold = meta.get("correct_answer", "").strip()
         wrongs = [w.strip() for w in meta.get("incorrect_answers", [])]
 
-        # Candidate pool: gold + human wrongs + generator K (dedup, keep text)
-        pool = [gold] + wrongs + gen_answers
+        # Candidate pool: gold + generator candidates (exclude provided human wrongs)
+        pool = [gold] + gen_answers
         # Deduplicate while preserving order
         seen = set()
         deduped: List[str] = []

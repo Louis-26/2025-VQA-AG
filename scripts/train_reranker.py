@@ -4,6 +4,7 @@ from typing import Dict
 
 import torch
 from transformers import AutoTokenizer, AutoConfig, Trainer, TrainingArguments
+import os
 from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLForConditionalGeneration
 from peft import LoraConfig, get_peft_model
 
@@ -51,10 +52,13 @@ def main():
     p.add_argument("--lr", type=float, default=2e-6)
     p.add_argument("--batch_size", type=int, default=1)
     p.add_argument("--epochs", type=int, default=1)
+    p.add_argument("--warmup_steps", type=int, default=200)
+    p.add_argument("--grad_accum", type=int, default=1)
     # Video options
     p.add_argument("--use_video", action="store_true")
     p.add_argument("--videos_dir", type=str, default="/brtx/603-nvme1/yweng13/VQA/my_train_videos")
     p.add_argument("--num_frames", type=int, default=64)
+    p.add_argument("--frame_size", type=int, default=None, help="If set, resize frames to SxS (e.g., 224)")
     # Rank weights
     p.add_argument("--w1", type=float, default=3.0, help="Rank 1 weight")
     p.add_argument("--w2", type=float, default=1.5, help="Rank 2 weight")
@@ -70,18 +74,22 @@ def main():
         default="q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj",
         help="Comma-separated module name fragments for LoRA",
     )
+    p.add_argument("--resume_from_checkpoint", type=str, default=None, help="Path to checkpoint to resume from")
     args = p.parse_args()
 
     tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
     cfg = AutoConfig.from_pretrained(args.model, trust_remote_code=True)
+    # Avoid device_map="auto" under DDP; let Accelerator move the model
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    use_device_map = None if world_size > 1 else "auto"
     if getattr(cfg, "model_type", "") == "qwen2_5_vl":
         model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            args.model, device_map="auto", trust_remote_code=True
+            args.model, device_map=use_device_map, trust_remote_code=True
         )
     else:
         from transformers import AutoModelForCausalLM
         model = AutoModelForCausalLM.from_pretrained(
-            args.model, device_map="auto", trust_remote_code=True
+            args.model, device_map=use_device_map, trust_remote_code=True
         )
     add_special_tokens_to_tokenizer(tokenizer, model)
 
@@ -105,12 +113,14 @@ def main():
         except Exception:
             pass
 
-    # Memory savers
-    try:
-        # Use non-reentrant to avoid requiring inputs with requires_grad=True
-        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
-    except Exception:
-        pass
+    # Memory savers - but avoid gradient checkpointing under DDP due to LoRA conflicts
+    enable_grad_ckpt = world_size == 1  # Only enable for single-GPU training
+    if enable_grad_ckpt:
+        try:
+            # Use non-reentrant to avoid requiring inputs with requires_grad=True
+            model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+        except Exception:
+            pass
     # Ensure inputs can require grad for checkpointing paths
     try:
         if hasattr(model, "enable_input_require_grads"):
@@ -127,7 +137,12 @@ def main():
     if args.use_video:
         from transformers import AutoProcessor
         processor = AutoProcessor.from_pretrained(args.model, trust_remote_code=True)
-        data_collator = VideoPointerCollator(processor, videos_dir=args.videos_dir, num_frames=args.num_frames)
+        data_collator = VideoPointerCollator(
+            processor,
+            videos_dir=args.videos_dir,
+            num_frames=args.num_frames,
+            frame_size=args.frame_size,
+        )
     else:
         data_collator = PointerListCollator(tokenizer)
 
@@ -140,11 +155,15 @@ def main():
         num_train_epochs=args.epochs,
         bf16=True,
         logging_steps=50,
+        save_strategy="epoch",
         save_steps=1000,
-        gradient_accumulation_steps=1,
+        save_total_limit=5,
+        gradient_accumulation_steps=args.grad_accum,
         report_to=[],
         remove_unused_columns=False,
-        gradient_checkpointing=True,
+        gradient_checkpointing=enable_grad_ckpt,
+        warmup_steps=args.warmup_steps,
+        ddp_find_unused_parameters=True,
     )
 
     trainer = MaskedWeightedTrainer(
@@ -155,7 +174,7 @@ def main():
         train_dataset=train_ds,
         data_collator=data_collator,
     )
-    trainer.train()
+    trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
     trainer.save_model(args.output_dir)
 
 

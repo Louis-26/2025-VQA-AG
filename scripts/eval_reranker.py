@@ -4,6 +4,7 @@ import math
 from tqdm import tqdm
 from typing import List, Dict
 import torch
+import random
 
 from transformers import AutoTokenizer, AutoConfig
 from transformers.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLForConditionalGeneration
@@ -116,7 +117,37 @@ def main():
                     break
         gold_ids.append(gold_cid)
 
-    preds = _batched_pointer_decode(model, tok, prompts, R_MAX_RANKS, args.batch_size)
+    # Shuffle candidate display order deterministically per example to avoid bias in tie-breaking
+    rng = random.Random(42)
+    shuffled_prompts = []
+    for p in prompts:
+        lines = p.splitlines()
+        head = []
+        cand = []
+        tail = []
+        mode = "head"
+        for line in lines:
+            if line.strip().startswith("Candidates:"):
+                head.append(line)
+                mode = "cand"
+                continue
+            if mode == "cand":
+                if line.strip().startswith("Reasoning:"):
+                    tail.append(line)
+                    mode = "tail"
+                elif line.strip().startswith("<CAND_"):
+                    cand.append(line)
+                else:
+                    tail.append(line)
+                    mode = "tail"
+            elif mode == "head":
+                head.append(line)
+            else:
+                tail.append(line)
+        rng.shuffle(cand)
+        shuffled_prompts.append("\n".join(head + cand + tail))
+
+    preds = _batched_pointer_decode(model, tok, shuffled_prompts, R_MAX_RANKS, args.batch_size)
     for pred_cids, gold_cid in tqdm(zip(preds, gold_ids), total=len(gold_ids), desc="Scoring"):
         if gold_cid is None:
             continue
