@@ -27,7 +27,9 @@ def main():
                        help="Maximum number of videos to process for a quick test.")
     parser.add_argument("--num_answers", type=int, default=16,
                        help="Number of answers to generate per question before de-dup.")
-    
+    parser.add_argument("--prompt_type", type=int, default=1,
+                       help="Prompt type. See prompt.py for options.")
+                       
     args = parser.parse_args()
 
     print("=== Zero-Shot VQA Inference Pipeline ===")
@@ -48,7 +50,7 @@ def main():
     print("\n2. Initializing model...")
     try:
         model_config = get_model_config(args.model_config)
-        vqa_model = create_vqa_model(model_config)
+        vqa_model = create_vqa_model(model_config, args.prompt_type)
     except ValueError as e:
         print(f"Error: {e}")
         return
@@ -60,6 +62,7 @@ def main():
         video_id = topic["Video_ID"]
         question = topic["Question"]
         q_id = topic["Q_ID"]
+        gt_answer = topic["correct_answer"]
         
         video_path = os.path.join(args.videos_dir, f"{video_id}.mp4")
         if not os.path.exists(video_path):
@@ -80,6 +83,7 @@ def main():
                 "Video_ID": video_id,
                 "Rank": i + 1,
                 "Answer": candidate.text.strip(),
+                "GT_Answer": gt_answer,
                 "Time (sec)": f"{candidate.generation_time:.4f}",
             })
 

@@ -54,6 +54,8 @@ MODEL_CONFIGS = {
         "type": "unified_multimodal",
         "model_name": "Qwen/Qwen2.5-VL-7B-Instruct",
         "max_length": 100,
+        "max_pixels": 360 * 420,
+        "fps": 30,
         "engine": "vllm",
         "description": "Official Qwen 2.5 VL 7B Instruct model with vLLM engine"
     },

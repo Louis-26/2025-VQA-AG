@@ -62,11 +62,19 @@ Outputs: Top‑1, NDCG@10, validity (no repeats).
 ### 4) Zero‑shot candidate generation (optional)
 ```bash
 python run_zeroshot_vqa.py \
-  --model_config qwen_vl_chat \
+  --model_config qwen_vl_chat_vllm \
   --videos_dir /brtx/603-nvme1/yweng13/VQA/my_train_videos \
   --json_files_dir /brtx/603-nvme1/yweng13/VQA/train_json_files \
-  --num_answers 16 \
-  --output submissions/qwen_candidates.csv
+  --num_answers 10 \
+  --output submissions/qwen_candidates_3.csv
+```
+
+You can evaluate the result:
+```bash
+python evaluation/evaluate_ag_results.py \
+  --pred_file submissions/qwen_candidates_2.csv \
+  --json_files_dir /brtx/603-nvme1/yweng13/VQA/train_json_files \
+  --normalize
 ```
 
 ### 5) Rerank with LLaVA‑Critic (optional)
@@ -78,7 +86,13 @@ python -m scripts.run_rerank_with_critic \
   --output_csv submissions/qwen_candidates.reranked.csv \
   --max_images 8 --max_decode_frames 256
 ```
-
+### 6) Generate ASR transcripts 
+```
+python scripts/generate_transcript.py \
+  --json_files_dir /brtx/603-nvme1/yweng13/VQA/train_json_files \
+  --videos_dir /brtx/603-nvme1/yweng13/VQA/my_train_videos \
+  --output_dir ./submissions
+```
 ## How the reranker works
 - Prompt contains: Question, optional ASR, and a “Candidates:” block with `<CAND_i>: text` lines.
 - Target is a pointer list: `<R1>=<CAND_j>`, `<R2>=<CAND_k>`, … `<ENDLIST>`.

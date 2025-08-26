@@ -9,6 +9,8 @@ import torch
 from dataclasses import dataclass
 import time
 import multiprocessing
+from qwen_vl_utils import process_vision_info
+import src.ag_task.prompt as prompts   
 
 @dataclass
 class AnswerCandidate:
@@ -21,10 +23,14 @@ class AnswerCandidate:
 class BaseVQAModel(ABC):
     """Abstract base class for VQA models to enable easy model swapping."""
     
-    def __init__(self, model_config: Dict[str, Any]):
+    def __init__(self, model_config: Dict[str, Any], prompt_type: int):
         self.model_config = model_config
         self.device = "auto"
+        import whisper
+        self.audio_model = whisper.load_model("turbo")
+        self.prompt_type = prompt_type
         self._initialize_model()
+
     
     @abstractmethod
     def _initialize_model(self):
@@ -399,7 +405,8 @@ class VLLMVQAModel(BaseVQAModel):
         if tokenizer_path:
             llm_kwargs["tokenizer"] = tokenizer_path
         self.model = LLM(**llm_kwargs)
-        
+        self.max_pixels = self.model_config.get("max_pixels", 360 * 420)
+        self.fps = self.model_config.get("fps", 30)
         # The processor is still needed to format the prompt correctly
         self.processor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
         print(f"Initialized vLLM engine for model: {model_name}")
@@ -408,39 +415,46 @@ class VLLMVQAModel(BaseVQAModel):
                        num_answers: int = 10) -> List[AnswerCandidate]:
         """Generate answers using vLLM."""
         from vllm import SamplingParams
-        
+
+        transcript = self.audio_model.transcribe(video_path)['text']
+
+
         if not video_path:
             raise ValueError("VLLMVQAModel requires a 'video_path'.")
-        
         start_time = time.time()
+        prompt = prompts.PROMPT_LIST[int(self.prompt_type)-1].format(question=question, transcript=transcript)
+        print(prompt)
 
-        
-        # Extract frames from video
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
-            raise ValueError(f"Could not open video: {video_path}")
-        
-        frames_list: List[np.ndarray] = []
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            frames_list.append(frame)
-        cap.release()
-
-        # Convert frames to numpy array (T, H, W, C)
-        video_data = np.array(frames_list)
         messages = [
             {
                 "role": "user",
                 "content": [
-                    {"type": "video", "video": video_data},
-                    {"type": "text", "text": f"Answer the following question concisely in one sentence: {question}"}
+                    {
+                        "type": "video", 
+                        "video": video_path,
+                        "fps": self.fps,
+                        "max_pixels": self.max_pixels,
+                    },
+                    {"type": "text", "text": prompt}
                 ]
             }
         ]
         text = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        # inputs = self.processor(text=text, videos=[video_data], return_tensors="pt", padding=True)
+        image_inputs, video_inputs, video_kwargs = process_vision_info(messages, return_video_kwargs=True)
+
+        mm_data = {}
+        if image_inputs is not None:
+            mm_data["image"] = image_inputs
+        if video_inputs is not None:
+            mm_data["video"] = video_inputs
+
+        llm_inputs = {
+            "prompt": text,
+            "multi_modal_data": mm_data,
+
+            # FPS will be returned in video_kwargs
+            "mm_processor_kwargs": video_kwargs,
+        }
 
         # Define sampling parameters
         sampling_params = SamplingParams(
@@ -452,7 +466,7 @@ class VLLMVQAModel(BaseVQAModel):
         
         # Generate answers
         with torch.no_grad():
-            outputs = self.model.generate([text], sampling_params)
+            outputs = self.model.generate([llm_inputs], sampling_params)
         end_time = time.time()
         generation_time = (end_time - start_time) / len(outputs)
         # Process the outputs
@@ -480,21 +494,21 @@ class VLLMVQAModel(BaseVQAModel):
 
 
 # Model factory for easy instantiation
-def create_vqa_model(model_config: Dict[str, Any]) -> BaseVQAModel:
+def create_vqa_model(model_config: Dict[str, Any], prompt_type: int) -> BaseVQAModel:
     """Factory function to create VQA models based on configuration."""
     model_name = model_config.get("model_name", "")
     engine = model_config.get("engine", "")
     if engine == "vllm":
-        return VLLMVQAModel(model_config)
+        return VLLMVQAModel(model_config, prompt_type)
     
     if "qwen" in model_name.lower() and "vl" in model_name.lower():
         
-        return QwenVQAModel(model_config)
+        return QwenVQAModel(model_config, prompt_type)
     
     model_family = model_config.get("family", "huggingface")
     if model_family == "huggingface":
 
-        return HuggingFaceVQAModel(model_config)
+        return HuggingFaceVQAModel(model_config, prompt_type)
     else:
         raise ValueError(f"Unsupported model family: {model_family}") 
 

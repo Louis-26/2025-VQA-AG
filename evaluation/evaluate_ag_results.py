@@ -161,7 +161,7 @@ def main():
         raise ValueError("pred_file must contain columns Q_ID and Answer")
 
     # Keep first prediction per Q_ID if duplicates
-    df = df.sort_values(by=["Q_ID", "CriticScore","CriticLatencySec"], ascending=[True, False, True]) if "Rank" in df.columns else df
+    # df = df.sort_values(by=["Q_ID", "CriticScore","CriticLatencySec"], ascending=[True, False, True]) if "Rank" in df.columns else df
     df_unique = df.drop_duplicates(subset=["Q_ID"], keep="first").reset_index(drop=True)
 
     # Load ground truth
@@ -183,7 +183,7 @@ def main():
 
     if not preds:
         raise RuntimeError("No aligned predictions with ground-truth were found. Check Q_ID matching.")
-    import pdb; pdb.set_trace()
+
     # Compute metrics (raw)
     rouge_list, rouge_avg = compute_rouge_l(preds, refs, mods["rouge_scorer"]) 
     meteor_list, meteor_avg = compute_meteor(preds, refs, mods["single_meteor_score"]) 

@@ -2,7 +2,7 @@
 #SBATCH -J reranker_lora_video
 #SBATCH -p ba100
 #SBATCH --gpus=1
-#SBATCH -t 24:00:00
+#SBATCH -t 1:00:00
 #SBATCH -o /brtx/603-nvme1/yweng13/trecvid/my-vqa-research-framework/logs/reranker_lora_video_%j.out
 
 set -euo pipefail

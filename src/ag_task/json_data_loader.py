@@ -39,6 +39,7 @@ def load_json_topics(json_files_dir: str) -> List[Dict[str, Any]]:
                     "Q_ID": filename.replace('.json', ''),
                     "Video_ID": video_id[0],
                     "Question": data["question"],
+                    "correct_answer": data["correct_answer"],
                 })
             except (json.JSONDecodeError, KeyError) as e:
                 print(f"Warning: Could not process file {filename}. Error: {e}. Skipping.")
