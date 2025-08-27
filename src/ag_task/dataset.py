@@ -42,14 +42,26 @@ class AGTrainingDataset(Dataset):
     def __getitem__(self, idx: int) -> Dict[str, Any]:
         item = self.items[idx]
         
-        video_path = os.path.join(self.videos_dir, f"{item['Video_ID']}.mp4")
+        # Try different video file extensions
+        video_id = item['Video_ID']
+        possible_paths = [
+            os.path.join(self.videos_dir, f"{video_id}.f614.mp4"),  # YouTube-dl format
+            os.path.join(self.videos_dir, f"{video_id}.mp4"),       # Standard format
+            os.path.join(self.videos_dir, f"{video_id}.mkv"),       # Alternative format
+        ]
+        
+        video_path = None
+        for path in possible_paths:
+            if os.path.exists(path):
+                video_path = path
+                break
         
         return {
             "Q_ID": item.get("Q_ID"),
             "Video_ID": item.get("Video_ID"),
             "question": item.get("question", ""),
             "asr_transcript": item.get("asr_transcript", ""),
-            "video_path": video_path if os.path.exists(video_path) else None,
+            "video_path": video_path,
             "ground_truth": item.get("ground_truth", ""),
         }
 

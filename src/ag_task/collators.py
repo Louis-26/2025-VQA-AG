@@ -115,14 +115,56 @@ class AGVideoCollator:
         
         # Handle case where no valid videos found
         if not video_inputs:
-            # Skip this batch - return empty to avoid processing invalid data
-            return {
-                "input_ids": torch.empty(0, 0, dtype=torch.long),
-                "attention_mask": torch.empty(0, 0, dtype=torch.long),
-                "labels": torch.empty(0, 0, dtype=torch.long),
-                "pixel_values": None,
-                "image_grid_thw": None
-            }
+            # Create a minimal fallback batch with text-only
+            fallback_prompt = self.create_ag_prompt(
+                question="What do you see?",
+                asr_transcript=""
+            )
+            fallback_target = self.create_target_answers("I see a video.")
+            
+            # Process fallback as text-only
+            model_inputs = self.processor(
+                text=[fallback_prompt],
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                max_length=self.max_length
+            )
+            
+            # Process target
+            target_encodings = self.processor.tokenizer(
+                [fallback_target],
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                add_special_tokens=False,
+                max_length=self.max_length
+            )
+            
+            # Create labels for fallback
+            input_len = model_inputs["input_ids"].shape[1]
+            target_len = target_encodings["input_ids"].shape[1]
+            
+            full_input_ids = torch.cat([
+                model_inputs["input_ids"],
+                target_encodings["input_ids"]
+            ], dim=1)
+            
+            full_attention = torch.cat([
+                model_inputs["attention_mask"],
+                target_encodings["attention_mask"]
+            ], dim=1)
+            
+            labels = torch.full_like(full_input_ids, -100)
+            labels[:, input_len:input_len + target_len] = target_encodings["input_ids"]
+            
+            model_inputs["input_ids"] = full_input_ids
+            model_inputs["attention_mask"] = full_attention
+            model_inputs["labels"] = labels
+            model_inputs["ground_truths"] = ["I see a video."]
+            model_inputs["q_ids"] = ["fallback"]
+            
+            return model_inputs
         
         # Build messages for chat template
         messages = []
