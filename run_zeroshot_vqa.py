@@ -6,7 +6,6 @@ from tqdm import tqdm
 import pandas as pd
 
 from src.ag_task.json_data_loader import load_json_topics
-from src.utils.video_processing import extract_frames
 from src.ag_task.vqa_model_vllm import create_vqa_model, AnswerCandidate
 
 from src.ag_task.model_configs import get_model_config, list_available_configs

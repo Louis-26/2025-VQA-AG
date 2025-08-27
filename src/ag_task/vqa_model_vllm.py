@@ -103,39 +103,23 @@ class QwenVQAModel(BaseVQAModel):
             raise ValueError("QwenVQAModel requires a 'video_path'.")
 
         start_time = time.time()
-        
-        # Load video data
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
-            raise ValueError(f"Could not open video: {video_path}")
-        
-        frames_list: List[np.ndarray] = []
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            frames_list.append(frame)
-        cap.release()
-        
-        if not frames_list:
-            raise ValueError(f"No frames extracted from video: {video_path}")
-        
-        # Convert frames to numpy array (T, H, W, C)
-        video_data = np.array(frames_list)
-        
-        # Build messages and tokenize with processor
+
+        # Use processor's built-in video handling by passing a local file URI.
+        video_uri = f"file://{os.path.abspath(video_path)}"
         messages = [
             {
                 "role": "user",
                 "content": [
-                    {"type": "video", "video": video_data},
+                    {"type": "video", "video": video_uri},
                     {"type": "text", "text": f"Answer the following question concisely in one sentence: {question}"}
                 ]
             }
         ]
-        
+
         text = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        inputs = self.processor(text=text, videos=[video_data], return_tensors="pt", padding=True).to(self.device)
+        # Let the processor decode the video path. Avoid manual OpenCV decoding.
+        inputs = self.processor(text=text, videos=[video_uri], return_tensors="pt", padding=True)
+        # Don't force .to("auto"); rely on HF moving tensors during generation.
         
         # Generate multiple sequences with sampling
         gen_kwargs = dict(
@@ -406,7 +390,9 @@ class VLLMVQAModel(BaseVQAModel):
     
     def generate_answers(self, question: str, frames: Optional[np.ndarray] = None, video_path: Optional[str] = None, 
                        num_answers: int = 10) -> List[AnswerCandidate]:
-        """Generate answers using vLLM."""
+        """Generate answers using vLLM.
+        Note: vLLM path currently treats input as text-only; video content is not ingested here.
+        """
         from vllm import SamplingParams
         
         if not video_path:
@@ -414,27 +400,10 @@ class VLLMVQAModel(BaseVQAModel):
         
         start_time = time.time()
 
-        
-        # Extract frames from video
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
-            raise ValueError(f"Could not open video: {video_path}")
-        
-        frames_list: List[np.ndarray] = []
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            frames_list.append(frame)
-        cap.release()
-
-        # Convert frames to numpy array (T, H, W, C)
-        video_data = np.array(frames_list)
         messages = [
             {
                 "role": "user",
                 "content": [
-                    {"type": "video", "video": video_data},
                     {"type": "text", "text": f"Answer the following question concisely in one sentence: {question}"}
                 ]
             }
