@@ -115,13 +115,14 @@ class AGVideoCollator:
         
         # Handle case where no valid videos found
         if not video_inputs:
-            # Create dummy batch to keep training alive
-            import numpy as np
-            dummy_video = np.zeros((1, 224, 224, 3), dtype=np.uint8)
-            video_inputs = [dummy_video]
-            texts = ["Question: What do you see?"]
-            targets = ["1. I see a video."]
-            valid_indices = [0]
+            # Skip this batch - return empty to avoid processing invalid data
+            return {
+                "input_ids": torch.empty(0, 0, dtype=torch.long),
+                "attention_mask": torch.empty(0, 0, dtype=torch.long),
+                "labels": torch.empty(0, 0, dtype=torch.long),
+                "pixel_values": None,
+                "image_grid_thw": None
+            }
         
         # Build messages for chat template
         messages = []
@@ -141,9 +142,10 @@ class AGVideoCollator:
         ]
         
         # Process inputs (tokenize + encode videos)
+        # Note: videos are already embedded in input_texts via chat template, 
+        # so we don't pass videos separately
         model_inputs = self.processor(
             text=input_texts,
-            videos=video_inputs,
             return_tensors="pt",
             padding=True,
             truncation=True,
