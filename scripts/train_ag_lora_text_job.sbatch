@@ -5,17 +5,18 @@
 #SBATCH -t 12:00:00
 #SBATCH -o /brtx/603-nvme1/yweng13/trecvid/my-vqa-research-framework/logs/ag_lora_text_%j.out
 
-set -euo pipefail
+set -eo pipefail  # Remove 'u' flag to allow unbound variables during conda setup
 
 export PYTHONUNBUFFERED=1
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 WORKDIR=/brtx/603-nvme1/yweng13/trecvid/my-vqa-research-framework
 
-# Initialize conda environment
-export PATH="~/miniconda3/bin:$PATH"
+# Initialize conda (allow unbound variables for conda scripts)
+set +u
 source ~/miniconda3/etc/profile.d/conda.sh
-source activate vqa-research
+conda activate vqa-research
+set -u  # Re-enable unbound variable checking after conda activation
 
 mkdir -p "$WORKDIR/logs" "$WORKDIR/outputs"
 cd "$WORKDIR"
