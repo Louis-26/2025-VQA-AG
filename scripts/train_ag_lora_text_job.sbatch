@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -J ag_lora_text_training
-#SBATCH -p ba100
+#SBATCH -p brtx6
 #SBATCH --gpus=1
 #SBATCH -t 12:00:00
 #SBATCH -o /brtx/603-nvme1/yweng13/trecvid/my-vqa-research-framework/logs/ag_lora_text_%j.out
@@ -12,10 +12,10 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 WORKDIR=/brtx/603-nvme1/yweng13/trecvid/my-vqa-research-framework
 
-# Initialize conda
+# Initialize conda environment
+export PATH="~/miniconda3/bin:$PATH"
 source ~/miniconda3/etc/profile.d/conda.sh
-conda init
-conda activate vqa-research
+source activate vqa-research
 
 mkdir -p "$WORKDIR/logs" "$WORKDIR/outputs"
 cd "$WORKDIR"
