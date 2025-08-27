@@ -58,6 +58,26 @@ MODEL_CONFIGS = {
         "description": "Official Qwen 2.5 VL 7B Instruct model with vLLM engine"
     },
     
+    "ag_lora_transformers": {
+        "family": "lora",
+        "type": "unified_multimodal",
+        "base_model_name": "Qwen/Qwen2.5-VL-7B-Instruct",
+        "lora_adapter_path": "outputs/ag-qwen-lora-video-10answers",
+        "engine": "transformers",
+        "max_length": 512,
+        "description": "LoRA fine-tuned Qwen2.5-VL for 10-answer generation (transformers)"
+    },
+    
+    "ag_lora_vllm": {
+        "family": "lora",
+        "type": "unified_multimodal", 
+        "base_model_name": "Qwen/Qwen2.5-VL-7B-Instruct",
+        "lora_adapter_path": "outputs/ag-qwen-lora-video-10answers",
+        "engine": "vllm",
+        "max_length": 512,
+        "description": "LoRA fine-tuned Qwen2.5-VL for 10-answer generation (vLLM)"
+    },
+    
     # Configuration for future grounding-enhanced models
     "grounded_vqa": {
         "family": "huggingface",

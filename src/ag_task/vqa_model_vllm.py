@@ -452,17 +452,24 @@ class VLLMVQAModel(BaseVQAModel):
 def create_vqa_model(model_config: Dict[str, Any]) -> BaseVQAModel:
     """Factory function to create VQA models based on configuration."""
     model_name = model_config.get("model_name", "")
+    model_family = model_config.get("family", "huggingface")
     engine = model_config.get("engine", "")
+    
+    # Handle LoRA fine-tuned models
+    if model_family == "lora":
+        from .vqa_model_lora import LoRAQwenVQAModel
+        return LoRAQwenVQAModel(model_config)
+    
+    # Handle vLLM engine
     if engine == "vllm":
         return VLLMVQAModel(model_config)
     
+    # Handle Qwen models
     if "qwen" in model_name.lower() and "vl" in model_name.lower():
-        
         return QwenVQAModel(model_config)
     
-    model_family = model_config.get("family", "huggingface")
+    # Handle standard HuggingFace models
     if model_family == "huggingface":
-
         return HuggingFaceVQAModel(model_config)
     else:
         raise ValueError(f"Unsupported model family: {model_family}") 

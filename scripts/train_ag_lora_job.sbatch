@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH -J ag_lora_training
 #SBATCH -p ba100
-#SBATCH --gpus=2
-#SBATCH -t 24:00:00
+#SBATCH --gpus=4
+#SBATCH -t 10:00:00
 #SBATCH -o /brtx/603-nvme1/yweng13/trecvid/my-vqa-research-framework/logs/ag_lora_%j.out
 
 set -eo pipefail  # Remove 'u' flag to allow unbound variables during conda setup

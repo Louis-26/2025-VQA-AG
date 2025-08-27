@@ -8,6 +8,8 @@ Memory-efficient alternative to full fine-tuning.
 import argparse
 import os
 import torch
+import json
+import glob
 from dataclasses import dataclass
 from typing import Optional, Dict, Any, List
 
@@ -26,86 +28,214 @@ from src.ag_task.losses import BERTScoreMaxLoss, SimpleBERTScoreMaxLoss
 
 class AGLoRATrainer(Trainer):
     """
-    Custom trainer for AG model with LoRA and BERTScore-based loss.
+    Custom trainer for AG model with LoRA.
+    Uses standard LM loss for training and BERTScore for evaluation.
     """
     
     def __init__(
         self, 
-        loss_fn,
-        use_bertscore: bool = True,
+        bertscore_evaluator=None,
         num_answers: int = 10,
         *args, 
         **kwargs
     ):
         super().__init__(*args, **kwargs)
-        self.loss_fn = loss_fn
-        self.use_bertscore = use_bertscore
+        self.bertscore_evaluator = bertscore_evaluator
         self.num_answers = num_answers
+        self.generation_step_count = 0
     
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         """
-        Compute custom BERTScore-based loss.
+        Compute standard LM loss for training. BERTScore is only used for evaluation.
         """
-        if not self.use_bertscore:
-            # Fallback to standard cross-entropy loss
-            labels = inputs.get("labels")
-            outputs = model(**{k: v for k, v in inputs.items() if k not in ["labels", "ground_truths", "q_ids"]})
-            logits = outputs.logits
-            
-            if labels is not None:
-                loss_fct = torch.nn.CrossEntropyLoss()
-                shift_logits = logits[..., :-1, :].contiguous()
-                shift_labels = labels[..., 1:].contiguous()
-                loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
-            else:
-                loss = torch.tensor(0.0, device=logits.device)
-            
-            return (loss, outputs) if return_outputs else loss
+        # Always use standard cross-entropy loss for training
+        labels = inputs.get("labels")
+        outputs = model(**{k: v for k, v in inputs.items() if k not in ["labels", "ground_truths", "q_ids"]})
+        logits = outputs.logits
         
-        # BERTScore-based training
+        if labels is not None:
+            loss_fct = torch.nn.CrossEntropyLoss()
+            shift_logits = logits[..., :-1, :].contiguous()
+            shift_labels = labels[..., 1:].contiguous()
+            loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+        else:
+            loss = torch.tensor(0.0, device=logits.device)
+        
+        # Optionally compute BERTScore for logging (every N steps to save compute)
+        if (self.bertscore_evaluator is not None and 
+            self.state.global_step % 50 == 0 and  # Only every 50 steps
+            self.state.global_step > 0):
+            self._log_bertscore_evaluation(model, inputs)
+        
+        return (loss, outputs) if return_outputs else loss
+    
+    def _log_bertscore_evaluation(self, model, inputs):
+        """
+        Generate answers and compute BERTScore for evaluation (no gradients).
+        """
         ground_truths = inputs.get("ground_truths", [])
         if not ground_truths:
-            # Fallback if no ground truths available
-            return self.compute_loss(model, inputs, return_outputs, num_items_in_batch)
-        
-        # Generate answers from the model
-        model_inputs = {k: v for k, v in inputs.items() if k not in ["labels", "ground_truths", "q_ids"]}
-        
-        with torch.no_grad():
-            # Generate multiple sequences
-            generated_ids = model.generate(
-                **model_inputs,
-                max_new_tokens=512,
-                num_return_sequences=1,
-                do_sample=True,
-                temperature=0.7,
-                pad_token_id=self.tokenizer.eos_token_id,
-                eos_token_id=self.tokenizer.eos_token_id
-            )
+            return
             
-            # Decode generated text
-            input_length = model_inputs["input_ids"].size(1)
-            generated_texts = []
-            for i, ids in enumerate(generated_ids):
-                # Remove input tokens to get only generated part
-                generated_only = ids[input_length:]
-                text = self.tokenizer.decode(generated_only, skip_special_tokens=True)
-                generated_texts.append(text)
+        try:
+            with torch.no_grad():
+                # Generate answers
+                model_inputs = {k: v for k, v in inputs.items() if k not in ["labels", "ground_truths", "q_ids"]}
+                
+                generated_ids = model.generate(
+                    **model_inputs,
+                    max_new_tokens=512,
+                    num_return_sequences=1,
+                    do_sample=True,
+                    temperature=0.7,
+                    pad_token_id=self.tokenizer.eos_token_id,
+                    eos_token_id=self.tokenizer.eos_token_id
+                )
+                
+                # Decode generated text
+                input_length = model_inputs["input_ids"].size(1)
+                generated_texts = []
+                for ids in generated_ids:
+                    generated_only = ids[input_length:]
+                    text = self.tokenizer.decode(generated_only, skip_special_tokens=True)
+                    generated_texts.append(text)
+                
+                # Compute BERTScore
+                if len(generated_texts) == len(ground_truths):
+                    bertscore_result = self.bertscore_evaluator(generated_texts, ground_truths, return_scores=True)
+                    if isinstance(bertscore_result, tuple):
+                        _, bert_scores = bertscore_result
+                        max_scores = torch.max(bert_scores, dim=1)[0]
+                        avg_max_bertscore = max_scores.mean().item()
+                        
+                        # Log the metric
+                        self.log({"eval/avg_max_bertscore": avg_max_bertscore})
+                        
+                        # Log a sample generation for inspection
+                        if len(generated_texts) > 0:
+                            sample_text = generated_texts[0][:200] + "..." if len(generated_texts[0]) > 200 else generated_texts[0]
+                            print(f"\nStep {self.state.global_step} - Sample generation:")
+                            print(f"Generated: {sample_text}")
+                            print(f"Ground truth: {ground_truths[0]}")
+                            print(f"Avg Max BERTScore: {avg_max_bertscore:.4f}")
+                            
+        except Exception as e:
+            print(f"Warning: BERTScore evaluation failed: {e}")
+            pass
+
+
+def plot_training_loss(output_dir: str, num_epochs: int):
+    """
+    Plot training loss vs epoch from trainer state and checkpoint data.
+    
+    Args:
+        output_dir: Directory containing training outputs and checkpoints
+        num_epochs: Number of training epochs
+    """
+    try:
+        import matplotlib.pyplot as plt
+        import numpy as np
+    except ImportError:
+        print("Warning: matplotlib not available. Install with: pip install matplotlib")
+        return
+    
+    # Collect loss data from trainer state and checkpoints
+    loss_data = []
+    epoch_data = []
+    
+    # Read main trainer state
+    trainer_state_path = os.path.join(output_dir, "trainer_state.json")
+    if os.path.exists(trainer_state_path):
+        with open(trainer_state_path, 'r') as f:
+            trainer_state = json.load(f)
+            
+        # Extract from log history
+        for entry in trainer_state.get("log_history", []):
+            if "loss" in entry and "epoch" in entry:
+                loss_data.append(entry["loss"])
+                epoch_data.append(entry["epoch"])
+    
+    # Read checkpoint trainer states for additional data points
+    checkpoint_dirs = glob.glob(os.path.join(output_dir, "checkpoint-*"))
+    for checkpoint_dir in sorted(checkpoint_dirs):
+        checkpoint_state_path = os.path.join(checkpoint_dir, "trainer_state.json")
+        if os.path.exists(checkpoint_state_path):
+            with open(checkpoint_state_path, 'r') as f:
+                checkpoint_state = json.load(f)
+                
+            # Get the final epoch for this checkpoint
+            final_epoch = checkpoint_state.get("epoch")
+            if final_epoch is not None:
+                # Find the last loss value from this checkpoint's history
+                log_history = checkpoint_state.get("log_history", [])
+                if log_history:
+                    for entry in reversed(log_history):
+                        if "loss" in entry:
+                            # Only add if we don't already have this epoch
+                            if final_epoch not in epoch_data:
+                                loss_data.append(entry["loss"])
+                                epoch_data.append(final_epoch)
+                            break
+    
+    if not loss_data:
+        print("Warning: No loss data found for plotting")
+        return
+    
+    # Sort by epoch
+    combined = list(zip(epoch_data, loss_data))
+    combined.sort(key=lambda x: x[0])
+    epoch_data, loss_data = zip(*combined)
+    
+    # Create the plot
+    plt.figure(figsize=(10, 6))
+    plt.plot(epoch_data, loss_data, 'b-o', linewidth=2, markersize=6, label='Training Loss')
+    plt.xlabel('Epoch', fontsize=12)
+    plt.ylabel('Loss', fontsize=12)
+    plt.title('LoRA Training Loss vs Epoch', fontsize=14, fontweight='bold')
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    
+    # Set epoch range
+    plt.xlim(0, num_epochs)
+    
+    # Add loss values as text annotations
+    for epoch, loss in zip(epoch_data, loss_data):
+        plt.annotate(f'{loss:.4f}', 
+                    (epoch, loss), 
+                    textcoords="offset points", 
+                    xytext=(0,10), 
+                    ha='center',
+                    fontsize=9,
+                    alpha=0.8)
+    
+    # Save the plot
+    plot_path = os.path.join(output_dir, "training_loss_plot.png")
+    plt.tight_layout()
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    print(f"Training loss plot saved to: {plot_path}")
+    
+    # Also save loss data as CSV for further analysis
+    csv_path = os.path.join(output_dir, "training_loss_data.csv")
+    with open(csv_path, 'w') as f:
+        f.write("epoch,loss\n")
+        for epoch, loss in zip(epoch_data, loss_data):
+            f.write(f"{epoch},{loss}\n")
+    print(f"Training loss data saved to: {csv_path}")
+    
+    # Print summary statistics
+    if len(loss_data) > 1:
+        initial_loss = loss_data[0]
+        final_loss = loss_data[-1]
+        min_loss = min(loss_data)
+        max_loss = max(loss_data)
         
-        # Compute BERTScore loss
-        if len(generated_texts) == len(ground_truths):
-            loss = self.loss_fn(generated_texts, ground_truths)
-        else:
-            # Fallback loss if batch sizes don't match
-            loss = torch.tensor(0.0, device=model_inputs["input_ids"].device, requires_grad=True)
-        
-        if return_outputs:
-            # Create dummy outputs for compatibility
-            outputs = type('Outputs', (), {})()
-            outputs.loss = loss
-            return loss, outputs
-        
-        return loss
+        print(f"\nTraining Loss Summary:")
+        print(f"  Initial loss: {initial_loss:.4f}")
+        print(f"  Final loss: {final_loss:.4f}")
+        print(f"  Best loss: {min_loss:.4f}")
+        print(f"  Worst loss: {max_loss:.4f}")
+        print(f"  Improvement: {((initial_loss - final_loss) / initial_loss * 100):.2f}%")
+        print(f"  Data points: {len(loss_data)}")
 
 
 def main():
@@ -124,9 +254,11 @@ def main():
     parser.add_argument("--grad_accum", type=int, default=8, help="Gradient accumulation steps")
     parser.add_argument("--epochs", type=int, default=3, help="Number of epochs")
     parser.add_argument("--warmup_steps", type=int, default=100, help="Warmup steps")
-    parser.add_argument("--save_steps", type=int, default=500, help="Save checkpoint every N steps")
+    parser.add_argument("--save_steps", type=int, default=500, help="Save checkpoint every N steps (ignored if --save_every_epoch)")
     parser.add_argument("--eval_steps", type=int, default=500, help="Evaluation every N steps")
     parser.add_argument("--logging_steps", type=int, default=50, help="Logging every N steps")
+    parser.add_argument("--save_every_epoch", action="store_true", help="Save checkpoint after every epoch")
+    parser.add_argument("--plot_loss", action="store_true", help="Plot loss vs epoch after training")
     
     # LoRA-specific arguments
     parser.add_argument("--lora_r", type=int, default=16, help="LoRA rank")
@@ -145,10 +277,10 @@ def main():
     parser.add_argument("--num_answers", type=int, default=10, help="Number of answers to generate")
     parser.add_argument("--max_length", type=int, default=2048, help="Maximum sequence length")
     
-    # Loss function arguments
-    parser.add_argument("--use_bertscore", action="store_true", help="Use BERTScore loss (experimental)")
-    parser.add_argument("--bertscore_model", default="microsoft/deberta-xlarge-mnli", help="BERTScore model")
-    parser.add_argument("--simple_bertscore", action="store_true", help="Use simplified BERTScore loss")
+    # Evaluation arguments
+    parser.add_argument("--use_bertscore", action="store_true", help="Enable BERTScore evaluation during training (no gradient)")
+    parser.add_argument("--bertscore_model", default="microsoft/deberta-xlarge-mnli", help="BERTScore model for evaluation")
+    parser.add_argument("--simple_bertscore", action="store_true", help="Use simplified BERTScore evaluator")
     
     # Other arguments
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
@@ -243,20 +375,37 @@ def main():
             max_length=args.max_length
         )
     
-    # Setup loss function
-    loss_fn = None
+    # Setup BERTScore evaluator (for evaluation only, not training)
+    bertscore_evaluator = None
     if args.use_bertscore:
-        print(f"Using BERTScore loss with model: {args.bertscore_model}")
+        print(f"Using BERTScore for evaluation with model: {args.bertscore_model}")
+        print("Note: BERTScore is used for evaluation only. Training uses standard LM loss.")
         if args.simple_bertscore:
-            loss_fn = SimpleBERTScoreMaxLoss(
+            bertscore_evaluator = SimpleBERTScoreMaxLoss(
                 num_answers=args.num_answers,
                 bertscore_model=args.bertscore_model
             )
         else:
-            loss_fn = BERTScoreMaxLoss(
+            bertscore_evaluator = BERTScoreMaxLoss(
                 num_answers=args.num_answers,
                 bertscore_model=args.bertscore_model
             )
+    
+    # Calculate steps per epoch for epoch-based saving
+    dataset_size = len(train_dataset)
+    steps_per_epoch = max(1, dataset_size // (args.batch_size * args.grad_accum * world_size))
+    
+    # Determine save strategy and steps
+    if args.save_every_epoch:
+        save_strategy = "epoch"
+        save_steps = 1  # Save every 1 epoch
+        save_total_limit = args.epochs + 1  # Keep all epoch checkpoints + final
+        print(f"Epoch-based saving enabled: {steps_per_epoch} steps per epoch, saving every epoch")
+    else:
+        save_strategy = "steps"
+        save_steps = args.save_steps
+        save_total_limit = 3
+        print(f"Step-based saving: every {save_steps} steps")
     
     # Training arguments
     training_args = TrainingArguments(
@@ -268,11 +417,11 @@ def main():
         num_train_epochs=args.epochs,
         warmup_steps=args.warmup_steps,
         logging_steps=args.logging_steps,
-        save_steps=args.save_steps,
+        save_steps=save_steps,
         eval_steps=args.eval_steps if val_dataset else None,
         eval_strategy="steps" if val_dataset else "no",
-        save_strategy="steps",
-        save_total_limit=3,
+        save_strategy=save_strategy,
+        save_total_limit=save_total_limit,
         load_best_model_at_end=val_dataset is not None,
         metric_for_best_model="eval_loss" if val_dataset else None,
         bf16=True,
@@ -291,8 +440,7 @@ def main():
         eval_dataset=val_dataset,
         tokenizer=tokenizer,
         data_collator=data_collator,
-        loss_fn=loss_fn,
-        use_bertscore=args.use_bertscore,
+        bertscore_evaluator=bertscore_evaluator,
         num_answers=args.num_answers
     )
     
@@ -304,6 +452,13 @@ def main():
     print(f"Saving LoRA model to: {args.output_dir}")
     trainer.save_model()
     trainer.save_state()
+    
+    # Plot loss vs epoch if requested
+    if args.plot_loss:
+        try:
+            plot_training_loss(args.output_dir, args.epochs)
+        except Exception as e:
+            print(f"Warning: Failed to plot training loss: {e}")
 
 
 if __name__ == "__main__":

@@ -2,10 +2,10 @@
 #SBATCH -J ag_full_training
 #SBATCH -p ba100
 #SBATCH --gpus=4
-#SBATCH -t 48:00:00
+#SBATCH -t 23:00:00
 #SBATCH -o /brtx/603-nvme1/yweng13/trecvid/my-vqa-research-framework/logs/ag_full_%j.out
 
-set -euo pipefail
+set -eo pipefail
 
 export PYTHONUNBUFFERED=1
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
