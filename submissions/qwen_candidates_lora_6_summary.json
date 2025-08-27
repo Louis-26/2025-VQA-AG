@@ -1,0 +1,16 @@
+{
+  "num_items_evaluated": 492,
+  "num_missing_ground_truth": 0,
+  "averages": {
+    "ROUGE_L": 0.3796568742147678,
+    "METEOR": 0.24057730832835011,
+    "BERTScore_F1": 0.49222485490646817,
+    "STS_Cosine": 0.622032642364502
+  },
+  "averages_norm": {
+    "ROUGE_L": 0.3796568742147678,
+    "METEOR": 0.29789200826411927,
+    "BERTScore_F1": 0.44747134756199386,
+    "STS_Cosine": 0.6241934895515442
+  }
+}

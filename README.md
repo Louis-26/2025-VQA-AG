@@ -66,7 +66,7 @@ python run_zeroshot_vqa.py \
   --videos_dir /brtx/603-nvme1/yweng13/VQA/my_train_videos \
   --json_files_dir /brtx/603-nvme1/yweng13/VQA/train_json_files \
   --num_answers 10 \
-  --output submissions/qwen_candidates_3.csv
+  --output submissions/qwen_candidates_lora.csv
 ```
 
 You can evaluate the result:
@@ -87,12 +87,23 @@ python -m scripts.run_rerank_with_critic \
   --max_images 8 --max_decode_frames 256
 ```
 ### 6) Generate ASR transcripts 
-```
+```bash
 python scripts/generate_transcript.py \
   --json_files_dir /brtx/603-nvme1/yweng13/VQA/train_json_files \
   --videos_dir /brtx/603-nvme1/yweng13/VQA/my_train_videos \
   --output_dir ./submissions
 ```
+
+### 7) Rank the answer with STS
+```bash
+python scripts/rerank_with_sts.py \
+  --pred_file submissions/qwen_candidates_${rank_num}.csv \
+  --json_files_dir /brtx/603-nvme1/yweng13/VQA/train_json_files \
+  --enable_rerank \
+  --normalize \
+  --reranked_out submissions/qwen_candidates_${rank_num}_reranked.csv
+```
+
 ## How the reranker works
 - Prompt contains: Question, optional ASR, and a “Candidates:” block with `<CAND_i>: text` lines.
 - Target is a pointer list: `<R1>=<CAND_j>`, `<R2>=<CAND_k>`, … `<ENDLIST>`.

@@ -1,96 +1,37 @@
-# PROMPT1
+# PROMPT Evaluatation
+
+## Raw scores
+
+| PROMPT | ROUGE_L | METEOR | BERTScore_F1 | STS_Cosine |
+|--------|---------|--------|--------------|------------|
+| PROMPT1 | 0.2243 | 0.2227 | 0.2515 | 0.4691 |
+| PROMPT2 | 0.3342 | 0.2164 | 0.4762 | 0.6079 |
+| PROMPT3 | 0.3894 | 0.2281 | 0.4970 | 0.6314 |
+| PROMPT4 | 0.3837 | 0.2278 | 0.4849 | 0.6235 |
+| PROMPT5 | 0.4070 | 0.2518 | 0.5081 | 0.6380 |
+| PROMPT6 | 0.3905 | 0.2461 | 0.4849 | 0.6209 |
+| PROMPT7 | 0.3521 | 0.2456 | 0.4416 | 0.5952 |
+| PROMPT5_lora | 0.4014 | 0.2402 | 0.4963 | 0.6298 |
+| PROMPT6_lora | 0.3797 | 0.2406 | 0.4922 | 0.6220 |
 
 
-Averages (raw):
-  ROUGE_L: 0.1839
-  METEOR: 0.1778
-  BERTScore_F1: 0.2177
-  STS_Cosine: 0.3882
-Averages (normalized):
-  ROUGE_L: 0.1839
-  METEOR: 0.2184
-  BERTScore_F1: 0.1486
-  STS_Cosine: 0.3915
+## Normalized scores
 
-# PROMPT2
-
-Averages (raw):
-  ROUGE_L: 0.2470
-  METEOR: 0.1617
-  BERTScore_F1: 0.3956
-  STS_Cosine: 0.4804
-Averages (normalized):
-  ROUGE_L: 0.2470
-  METEOR: 0.2123
-  BERTScore_F1: 0.3461
-  STS_Cosine: 0.4853
+| PROMPT | ROUGE_L | METEOR | BERTScore_F1 | STS_Cosine |
+|--------|---------|--------|--------------|------------|
+| PROMPT1 | 0.2243 | 0.2720 | 0.1854 | 0.4710 |
+| PROMPT2 | 0.3342 | 0.2820 | 0.4369 | 0.6104 |
+| PROMPT3 | 0.3894 | 0.2816 | 0.4497 | 0.6312 |
+| PROMPT4 | 0.3837 | 0.2829 | 0.4371 | 0.6243 |
+| PROMPT5 | 0.4070 | 0.3083 | 0.4656 | 0.6388 |
+| PROMPT6 | 0.3905 | 0.3055 | 0.4451 | 0.6246 |
+| PROMPT7 | 0.3521 | 0.3096 | 0.3958 | 0.5985 |
+| PROMPT5_lora | 0.4014 | 0.2967 | 0.4548 | 0.6324 |
+| PROMPT6_lora | 0.3797 | 0.2979 | 0.4475 | 0.6242 |
 
 
-# PROMPT3
-
-Averages (raw):
-  ROUGE_L: 0.2770
-  METEOR: 0.1644
-  BERTScore_F1: 0.4230
-  STS_Cosine: 0.5075
-Averages (normalized):
-  ROUGE_L: 0.2770
-  METEOR: 0.1966
-  BERTScore_F1: 0.3766
-  STS_Cosine: 0.5102
 
 
-# PROMPT4
-
-Averages (raw):
-  ROUGE_L: 0.2763
-  METEOR: 0.1614
-  BERTScore_F1: 0.4160
-  STS_Cosine: 0.5006
-Averages (normalized):
-  ROUGE_L: 0.2763
-  METEOR: 0.2070
-  BERTScore_F1: 0.3683
-  STS_Cosine: 0.5067
-
-
-# PROMPT5
-
-Averages (raw):
-  ROUGE_L: 0.2965
-  METEOR: 0.1850
-  BERTScore_F1: 0.4373
-  STS_Cosine: 0.5209
-Averages (normalized):
-  ROUGE_L: 0.2965
-  METEOR: 0.2298
-  BERTScore_F1: 0.3922
-  STS_Cosine: 0.5245
-
-# PROMPT6
-
-Averages (raw):
-  ROUGE_L: 0.2883
-  METEOR: 0.1804
-  BERTScore_F1: 0.4012
-  STS_Cosine: 0.4972
-Averages (normalized):
-  ROUGE_L: 0.2883
-  METEOR: 0.2336
-  BERTScore_F1: 0.3565
-  STS_Cosine: 0.5035
-
-# PROMPT7
-Averages (raw):
-  ROUGE_L: 0.2595
-  METEOR: 0.1714
-  BERTScore_F1: 0.3467
-  STS_Cosine: 0.4715
-Averages (normalized):
-  ROUGE_L: 0.2595
-  METEOR: 0.2343
-  BERTScore_F1: 0.2987
-  STS_Cosine: 0.4796
 
 # analyse
 

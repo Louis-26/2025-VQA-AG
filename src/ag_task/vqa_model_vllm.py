@@ -1,4 +1,9 @@
 import os
+import sys
+import os
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+from src.ag_task.json_data_loader import load_json_topics
 import tempfile
 import cv2
 import re
@@ -11,6 +16,8 @@ import time
 import multiprocessing
 from qwen_vl_utils import process_vision_info
 import src.ag_task.prompt as prompts   
+from vllm.lora.request import LoRARequest
+
 
 @dataclass
 class AnswerCandidate:
@@ -400,7 +407,9 @@ class VLLMVQAModel(BaseVQAModel):
         llm_kwargs = dict(
             model=model_name,
             trust_remote_code=True,
-            tensor_parallel_size=4
+            tensor_parallel_size=4,
+            enable_lora=True,
+            max_lora_rank=32
         )
         if tokenizer_path:
             llm_kwargs["tokenizer"] = tokenizer_path
@@ -415,8 +424,10 @@ class VLLMVQAModel(BaseVQAModel):
                        num_answers: int = 10) -> List[AnswerCandidate]:
         """Generate answers using vLLM."""
         from vllm import SamplingParams
-
-        transcript = self.audio_model.transcribe(video_path)['text']
+        try:
+            transcript = self.audio_model.transcribe(video_path)['text']
+        except Exception:
+            transcript = ""
 
 
         if not video_path:
@@ -466,7 +477,7 @@ class VLLMVQAModel(BaseVQAModel):
         
         # Generate answers
         with torch.no_grad():
-            outputs = self.model.generate([llm_inputs], sampling_params)
+            outputs = self.model.generate([llm_inputs], sampling_params, lora_request=LoRARequest('lora_adapter', 1,'/brtx/603-nvme1/yweng13/trecvid/checkpoints/ag-qwen-lora-video-epoch-20250827_150612/checkpoint-320'))
         end_time = time.time()
         generation_time = (end_time - start_time) / len(outputs)
         # Process the outputs
@@ -525,9 +536,11 @@ if __name__ == "__main__":
         "num_keyframes": 5,
         "temperature": 0.7,
         "max_new_tokens": 64,
+        "fps": 30,
+        "max_pixels": 360 * 420,
     }
-    model = create_vqa_model(vllm_config)
+    model = create_vqa_model(vllm_config,1)
     question = "What is the video about?"
 
-    answers = model.generate_answers(question, video_path="./test.mp4", num_answers=10)
+    answers = model.generate_answers(question, video_path="/home/dzhang98/code/2025-VQA-AG/src/ag_task/yoga.mp4", num_answers=10)
     print(answers)
