@@ -270,7 +270,7 @@ def main():
         logging_steps=args.logging_steps,
         save_steps=args.save_steps,
         eval_steps=args.eval_steps if val_dataset else None,
-        evaluation_strategy="steps" if val_dataset else "no",
+        eval_strategy="steps" if val_dataset else "no",
         save_strategy="steps",
         save_total_limit=3,
         load_best_model_at_end=val_dataset is not None,
