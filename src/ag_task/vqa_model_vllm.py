@@ -477,7 +477,8 @@ class VLLMVQAModel(BaseVQAModel):
         
         # Generate answers
         with torch.no_grad():
-            outputs = self.model.generate([llm_inputs], sampling_params, lora_request=LoRARequest('lora_adapter', 1,'/brtx/603-nvme1/yweng13/trecvid/checkpoints/ag-qwen-lora-video-epoch-20250827_150612/checkpoint-320'))
+            print("Using Plora")
+            outputs = self.model.generate([llm_inputs], sampling_params, lora_request=LoRARequest('lora_adapter', 1,'/brtx/603-nvme1/yweng13/trecvid/checkpoints/ag-qwen-lora-video-epoch-20250827_215959/checkpoint-320'))
         end_time = time.time()
         generation_time = (end_time - start_time) / len(outputs)
         # Process the outputs
