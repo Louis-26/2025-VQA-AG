@@ -12,6 +12,67 @@ from src.reranker.data import RerankerJsonlDataset, PointerListCollator, VideoPo
 from src.reranker.tokens import add_special_tokens_to_tokenizer
 from src.reranker.losses import masked_pointer_ce_with_rank_weights
 
+# Optional plotting of training loss vs epoch
+import json
+import glob
+import os
+
+def plot_training_loss(output_dir: str, num_epochs: int) -> None:
+    try:
+        import matplotlib.pyplot as plt
+    except Exception:
+        print("Warning: matplotlib not available; skipping loss plot.")
+        return
+    loss_data = []
+    epoch_data = []
+    state_path = os.path.join(output_dir, "trainer_state.json")
+    if os.path.exists(state_path):
+        try:
+            with open(state_path, "r") as f:
+                state = json.load(f)
+            for entry in state.get("log_history", []):
+                if "loss" in entry and "epoch" in entry:
+                    loss_data.append(entry["loss"])
+                    epoch_data.append(entry["epoch"])
+        except Exception:
+            pass
+    for cp in sorted(glob.glob(os.path.join(output_dir, "checkpoint-*"))):
+        cp_state = os.path.join(cp, "trainer_state.json")
+        if not os.path.exists(cp_state):
+            continue
+        try:
+            with open(cp_state, "r") as f:
+                s = json.load(f)
+            e = s.get("epoch")
+            if e is None:
+                continue
+            for entry in reversed(s.get("log_history", [])):
+                if "loss" in entry:
+                    if e not in epoch_data:
+                        loss_data.append(entry["loss"])
+                        epoch_data.append(e)
+                    break
+        except Exception:
+            pass
+    if not loss_data:
+        print("Warning: No loss data found to plot.")
+        return
+    pairs = sorted(zip(epoch_data, loss_data), key=lambda x: x[0])
+    epoch_data, loss_data = zip(*pairs)
+    plt.figure(figsize=(8, 5))
+    plt.plot(epoch_data, loss_data, marker="o")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.title("Reranker Training Loss vs Epoch")
+    plt.grid(True, alpha=0.3)
+    plot_path = os.path.join(output_dir, "training_loss_plot.png")
+    try:
+        plt.tight_layout()
+        plt.savefig(plot_path, dpi=200)
+        print(f"Saved loss plot to {plot_path}")
+    except Exception as e:
+        print(f"Warning: Failed to save loss plot: {e}")
+
 
 @dataclass
 class RankWeights:
@@ -176,6 +237,11 @@ def main():
     )
     trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
     trainer.save_model(args.output_dir)
+    # Plot loss vs epoch
+    try:
+        plot_training_loss(args.output_dir, num_epochs=args.epochs)
+    except Exception as e:
+        print(f"Warning: could not plot loss: {e}")
 
 
 if __name__ == "__main__":

@@ -41,33 +41,46 @@ def _load_jsons_by_video(json_dir: str) -> Dict[str, Dict[str, Any]]:
 
 
 def _collect_generated_answers(csv_path: str) -> Dict[Tuple[str, str], List[str]]:
-    """Load candidates from CSV or Excel (.xlsx/.xls).
+    """Load candidates from CSV or Excel and return ordered answers per (Q_ID, Video_ID).
 
-    - For CSV: robust parsing with python engine and skipping bad lines.
-    - For Excel: read first sheet and select required columns.
+    Ordering preference:
+    1) Sort by 'new_rank' if present
+    2) Else by 'Rank'/'rank' if present
+    3) Else by file row order
     """
     lower = csv_path.lower()
-    usecols = ["Q_ID", "Video_ID", "Rank", "Answer"]
+    # Read flexibly, then select columns
     if lower.endswith(".xlsx") or lower.endswith(".xls"):
         try:
-            df = pd.read_excel(csv_path, engine="openpyxl", usecols=usecols, dtype={
-                "Q_ID": str, "Video_ID": str, "Rank": int, "Answer": str,
-            })
+            df = pd.read_excel(csv_path, engine="openpyxl")
         except ImportError as e:
             raise RuntimeError("Reading .xlsx requires openpyxl. Please install: pip install openpyxl") from e
     else:
-        # CSV path
-        df = pd.read_csv(
-            csv_path,
-            engine="python",
-            on_bad_lines="skip",
-            usecols=usecols,
-            dtype={"Q_ID": str, "Video_ID": str, "Rank": int, "Answer": str},
-        )
+        df = pd.read_csv(csv_path, engine="python", on_bad_lines="skip")
+
+    # Standardize expected columns
+    if "Q_ID" not in df.columns or "Video_ID" not in df.columns or "Answer" not in df.columns:
+        raise ValueError("Input file must contain columns: Q_ID, Video_ID, Answer (and optionally new_rank or Rank)")
+
+    # Determine ranking column
+    rank_col = None
+    for cand in ["new_rank", "New_Rank", "NEW_RANK", "Rank", "rank"]:
+        if cand in df.columns:
+            rank_col = cand
+            break
+
+    # Group and sort within group
     grouped: Dict[Tuple[str, str], List[str]] = {}
-    for _, row in df.iterrows():
-        key = (row["Q_ID"], row["Video_ID"])
-        grouped.setdefault(key, []).append(str(row["Answer"]).strip())
+    for (q_id, video_id), gdf in df.groupby(["Q_ID", "Video_ID"], sort=False):
+        if rank_col is not None:
+            # Sort by rank ascending; coerce to numeric if needed
+            try:
+                gdf = gdf.assign(_rank=pd.to_numeric(gdf[rank_col], errors="coerce")).sort_values(["_rank", gdf.index.name or gdf.index])
+            except Exception:
+                gdf = gdf.sort_values(by=rank_col, kind="mergesort")  # stable fallback
+        # Else keep original order
+        answers = [str(a).strip() for a in gdf["Answer"].tolist()]
+        grouped[(str(q_id), str(video_id))] = answers
     return grouped
 
 
@@ -159,7 +172,21 @@ def build_examples(
         if gold_cid is None:
             # If gold text got lost by dedup (shouldn't), skip
             continue
-        ranked_tail = _rank_tail_by_teacher_or_random(list(id_to_text.keys()), gold_cid, id_to_text, teacher)
+        # Use provided generator ranking order (from the file) for tail ranks.
+        ranked_tail: List[str] = []
+        for ans_text in gen_answers:
+            # Map answer text to its candidate id in current enumeration
+            cid = None
+            for _cid, _text in id_to_text.items():
+                if _text == ans_text:
+                    cid = _cid
+                    break
+            if cid is None or cid == gold_cid or cid in ranked_tail:
+                continue
+            ranked_tail.append(cid)
+        # If no usable order found (edge cases), fall back to teacher/random
+        if not ranked_tail:
+            ranked_tail = _rank_tail_by_teacher_or_random(list(id_to_text.keys()), gold_cid, id_to_text, teacher)
         pointer_lines = build_pointer_list_target(gold_cid, ranked_tail, max_ranks=R_MAX_RANKS)
         prompt = format_reranker_prompt(
             question=question,

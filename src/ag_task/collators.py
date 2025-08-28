@@ -43,19 +43,32 @@ class AGVideoCollator:
         Instructs the model to generate exactly num_answers numbered answers.
         """
         prompt_parts = [
-            f"Question: {question}"
+            "Answer the following question concisely in one sentence, you should follow the points:",
+            "",
+            "1. You should answer the question as simple as possible, some questions may just need a word or two.",
+            "2. You don't need to answer the question in a very detailed way, just give a concise answer.",
+            "3. For the answer in number, you should answer the number (one, two, three, etc.) but not 1, 2, 3, etc. in the question.",
         ]
-        
-        if asr_transcript.strip():
-            prompt_parts.append(f"ASR Transcript: {asr_transcript}")
-        
+
+        # Include transcript if provided
         prompt_parts.extend([
+            "",
+            "the transcript of the video is:",
+        ])
+        if asr_transcript.strip():
+            prompt_parts.append(asr_transcript)
+
+        # Question section
+        prompt_parts.extend([
+            "",
+            "question:",
+            question,
             "",
             f"Please provide exactly {self.num_answers} different possible answers to this question based on the video content.",
             f"Format your response as a numbered list from 1 to {self.num_answers}:",
-            ""
+            "",
         ])
-        
+
         return "\n".join(prompt_parts)
     
     def create_target_answers(self, ground_truth: str) -> str:
@@ -262,19 +275,32 @@ class AGTextCollator:
     def create_ag_prompt(self, question: str, asr_transcript: str = "") -> str:
         """Create prompt for answer generation (text-only version)."""
         prompt_parts = [
-            f"Question: {question}"
+            "Answer the following question concisely in one sentence, you should follow the points:",
+            "",
+            "1. You should answer the question as simple as possible, some questions may just need a word or two.",
+            "2. You don't need to answer the question in a very detailed way, just give a concise answer.",
+            "3. For the answer in number, you should answer the number (one, two, three, etc.) but not 1, 2, 3, etc. in the question.",
         ]
-        
-        if asr_transcript.strip():
-            prompt_parts.append(f"ASR Transcript: {asr_transcript}")
-        
+
+        # Include transcript if provided
         prompt_parts.extend([
+            "",
+            "the transcript of the video is:",
+        ])
+        if asr_transcript.strip():
+            prompt_parts.append(asr_transcript)
+
+        # Question section
+        prompt_parts.extend([
+            "",
+            "question:",
+            question,
             "",
             f"Please provide exactly {self.num_answers} different possible answers to this question.",
             f"Format your response as a numbered list from 1 to {self.num_answers}:",
-            ""
+            "",
         ])
-        
+
         return "\n".join(prompt_parts)
     
     def create_target_answers(self, ground_truth: str) -> str:

@@ -60,7 +60,7 @@ class AGLoRATrainer(Trainer):
             loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
         else:
             loss = torch.tensor(0.0, device=logits.device)
-        
+            
         # Optionally compute BERTScore for logging (every N steps to save compute)
         if (self.bertscore_evaluator is not None and 
             self.state.global_step % 50 == 0 and  # Only every 50 steps
@@ -76,7 +76,7 @@ class AGLoRATrainer(Trainer):
         ground_truths = inputs.get("ground_truths", [])
         if not ground_truths:
             return
-            
+        
         try:
             with torch.no_grad():
                 # Generate answers

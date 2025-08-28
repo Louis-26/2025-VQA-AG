@@ -109,3 +109,27 @@ python -m scripts.run_rerank_with_critic \
 
 ## License
 MIT. See `LICENSE`.
+
+## Qwen2.5‑VL Reranker (video + ASR)
+
+We provide a Qwen-based reranker that mirrors answer generation, but prompts the model to output a strict ranked list of the given candidates.
+
+- Script: `scripts/rerank_with_qwen_vl.py`
+- Model: Qwen2.5‑VL‑7B‑Instruct (see https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct)
+
+Example:
+
+```bash
+python scripts/rerank_with_qwen_vl.py \
+  --model Qwen/Qwen2.5-VL-7B-Instruct \
+  --candidates_csv submissions/qwen_candidates(in).csv \
+  --json_dir /brtx/603-nvme1/yweng13/VQA/train_json_files \
+  --videos_dir /brtx/603-nvme1/yweng13/VQA/my_train_videos \
+  --asr_json transcripts.json \
+  --output_csv submissions/qwen_candidates.qwenvl_reranked.csv \
+  --temperature 0.0 --max_new_tokens 256
+```
+
+- Inputs: CSV/XLSX with `Q_ID,Video_ID,Answer`; questions from `json_dir`; videos from `videos_dir`; optional ASR from `transcripts.json`.
+- Output: CSV with re‑ranked `Answer` per (Q_ID, Video_ID).
+- Notes: Uses Qwen chat template + `file://` video URIs per model card. Temperature 0.0 yields deterministic rankings.
