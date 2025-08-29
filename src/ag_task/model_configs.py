@@ -51,17 +51,31 @@ MODEL_CONFIGS = {
     },
     "qwen_vl_chat_vllm": {
         "family": "huggingface",
-        "type": "unified_multimodal",
+        "type": "generation",
         "model_name": "Qwen/Qwen2.5-VL-7B-Instruct",
         "max_length": 100,
         "engine": "vllm",
         "description": "Official Qwen 2.5 VL 7B Instruct model with vLLM engine"
     },
-    
+    "qwen_omni": {
+        "family": "huggingface",
+        "type": "unified_multimodal",
+        "model_name": "Qwen/Qwen2.5-Omni-7B",
+        "max_length": 100,
+        "description": "Official Qwen 2.5 Omni 7B model"
+    },
+    "qwen_omni_vllm": {
+        "family": "huggingface",
+        "type": "unified_multimodal",
+        "model_name": "Qwen/Qwen2.5-Omni-7B",
+        "max_length": 100,
+        "engine": "vllm",
+        "description": "Official Qwen 2.5 Omni 7B model with vLLM engine"
+    },
     "ag_lora_transformers": {
         "family": "lora",
-        "type": "unified_multimodal",
-        "base_model_name": "Qwen/Qwen2.5-VL-7B-Instruct",
+        "type": "generation",
+        "model_name": "Qwen/Qwen2.5-VL-7B-Instruct",
         "lora_adapter_path": "outputs/ag-qwen-lora-video-10answers",
         "engine": "transformers",
         "max_length": 512,
@@ -70,14 +84,23 @@ MODEL_CONFIGS = {
     
     "ag_lora_vllm": {
         "family": "lora",
-        "type": "unified_multimodal", 
-        "base_model_name": "Qwen/Qwen2.5-VL-7B-Instruct",
-        "lora_adapter_path": "outputs/ag-qwen-lora-video-10answers",
+        "type": "generation", 
+        "model_name": "Qwen/Qwen2.5-VL-7B-Instruct",
+        "lora_adapter_path": "/brtx/603-nvme1/yweng13/trecvid/checkpoints/ag-qwen-lora-video-epoch-20250827_150612/checkpoint-320",
         "engine": "vllm",
         "max_length": 512,
         "description": "LoRA fine-tuned Qwen2.5-VL for 10-answer generation (vLLM)"
     },
-    
+
+    "reranker_lora_vllm": {
+        "family": "lora",
+        "type": "reranker", 
+        "model_name": "Qwen/Qwen2.5-VL-7B-Instruct",
+        "lora_adapter_path": "/brtx/603-nvme2/yweng13/checkpoints/reranker-lora-asr-epoch/checkpoint-1110",
+        "engine": "vllm",
+        "max_length": 1024,
+        "description": "LoRA fine-tuned Qwen2.5-VL for reranking (vLLM)"
+    },
     # Configuration for future grounding-enhanced models
     "grounded_vqa": {
         "family": "huggingface",

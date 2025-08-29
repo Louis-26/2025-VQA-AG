@@ -5,14 +5,14 @@ import json
 from tqdm import tqdm
 import pandas as pd
 
-from src.ag_task.json_data_loader import load_csv_topics,load_json_topics
+from src.ag_task.json_data_loader import load_json_topics,load_csv_topics
 from src.ag_task.vqa_model_vllm import create_vqa_model, AnswerCandidate
 
 from src.ag_task.model_configs import get_model_config, list_available_configs
 
 def main():
     parser = argparse.ArgumentParser(description="Run Zero-Shot VQA with a specified model.")
-    parser.add_argument("--json_files_dir", type=str, required=True, 
+    parser.add_argument("--csv_files_dir", type=str, required=True, 
                        help="Path to the directory with JSON files.")
     parser.add_argument("--videos_dir", type=str, required=True, 
                        help="Directory containing the video files.")
@@ -25,7 +25,7 @@ def main():
     parser.add_argument("--max_videos", type=int, default=None,
                        help="Maximum number of videos to process for a quick test.")
     parser.add_argument("--num_answers", type=int, default=16,
-                       help="Number of answers to generate per question before de-dup.")
+                       help="Number of answers to generate per question before de-dup.")                 
     
     args = parser.parse_args()
 
@@ -33,7 +33,8 @@ def main():
     print(f"Model: {args.model_config}")
     
     print("\n1. Loading topics from JSON files...")
-    topics = load_json_topics(args.json_files_dir)
+    # topics = load_json_topics(args.json_files_dir)
+    topics = load_csv_topics(args.csv_files_dir)
 
     if not topics:
         print("No topics found. Exiting.")
@@ -55,7 +56,6 @@ def main():
 
     results = []
     print(f"\n3. Processing {len(topics)} videos and generating answers...")
-
     
     for topic in tqdm(topics, desc="Processing topics"):
         video_id = topic["Video_ID"]
@@ -91,6 +91,8 @@ def main():
         print(f"Submission file saved to {args.output_file}")
     else:
         print("No results were generated.")
+
+
 
 if __name__ == "__main__":
     main()

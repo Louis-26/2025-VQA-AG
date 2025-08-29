@@ -1,4 +1,9 @@
 import os
+import sys
+import os
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+from src.ag_task.json_data_loader import load_json_topics
 import tempfile
 import cv2
 import re
@@ -9,6 +14,12 @@ import torch
 from dataclasses import dataclass
 import time
 import multiprocessing
+from qwen_vl_utils import process_vision_info
+import src.ag_task.prompt as prompts   
+from vllm.lora.request import LoRARequest
+import argparse
+from transformers import Qwen2_5OmniForConditionalGeneration, Qwen2_5OmniProcessor
+from qwen_omni_utils import process_mm_info
 
 @dataclass
 class AnswerCandidate:
@@ -24,7 +35,10 @@ class BaseVQAModel(ABC):
     def __init__(self, model_config: Dict[str, Any]):
         self.model_config = model_config
         self.device = "auto"
+        import whisper
+        self.audio_model = whisper.load_model("turbo")
         self._initialize_model()
+
     
     @abstractmethod
     def _initialize_model(self):
@@ -103,23 +117,39 @@ class QwenVQAModel(BaseVQAModel):
             raise ValueError("QwenVQAModel requires a 'video_path'.")
 
         start_time = time.time()
-
-        # Use processor's built-in video handling by passing a local file URI.
-        video_uri = f"file://{os.path.abspath(video_path)}"
+        
+        # Load video data
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            raise ValueError(f"Could not open video: {video_path}")
+        
+        frames_list: List[np.ndarray] = []
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frames_list.append(frame)
+        cap.release()
+        
+        if not frames_list:
+            raise ValueError(f"No frames extracted from video: {video_path}")
+        
+        # Convert frames to numpy array (T, H, W, C)
+        video_data = np.array(frames_list)
+        
+        # Build messages and tokenize with processor
         messages = [
             {
                 "role": "user",
                 "content": [
-                    {"type": "video", "video": video_uri},
+                    {"type": "video", "video": video_data},
                     {"type": "text", "text": f"Answer the following question concisely in one sentence: {question}"}
                 ]
             }
         ]
-
+        
         text = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        # Let the processor decode the video path. Avoid manual OpenCV decoding.
-        inputs = self.processor(text=text, videos=[video_uri], return_tensors="pt", padding=True)
-        # Don't force .to("auto"); rely on HF moving tensors during generation.
+        inputs = self.processor(text=text, videos=[video_data], return_tensors="pt", padding=True).to(self.device)
         
         # Generate multiple sequences with sampling
         gen_kwargs = dict(
@@ -350,6 +380,109 @@ class HuggingFaceVQAModel(BaseVQAModel):
         
         return [clean_response]
 
+class RerankerVLLMVQAModel(BaseVQAModel):
+    """VQA model implementation specifically for vLLM."""
+    
+    def _initialize_model(self):
+        """Initialize the vLLM model."""
+        from vllm import LLM
+        from transformers import AutoProcessor, AutoTokenizer
+        from tempfile import mkdtemp
+        try:
+            from src.reranker.tokens import add_special_tokens_to_tokenizer
+        except Exception:
+            add_special_tokens_to_tokenizer = None
+        
+        model_name = self.model_config["model_name"]
+        
+        tokenizer_path = None
+        if add_special_tokens_to_tokenizer is not None:
+            try:
+                tok = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+                add_special_tokens_to_tokenizer(tok, None)
+                tokenizer_path = mkdtemp(prefix="qwen_tok_")
+                tok.save_pretrained(tokenizer_path)
+            except Exception:
+                tokenizer_path = None
+        # vLLM engine initialization (pass tokenizer path if available so special tokens are recognized)
+        self.lora_adapter_path = self.model_config.get("lora_adapter_path", None)
+
+        llm_kwargs = dict(
+            model=model_name,
+            trust_remote_code=True,
+            tensor_parallel_size=4,
+            enable_lora=True if self.lora_adapter_path is not None else False,
+            max_lora_rank=32 if self.lora_adapter_path is not None else None,
+        )
+        if tokenizer_path:
+            llm_kwargs["tokenizer"] = tokenizer_path
+        self.model = LLM(**llm_kwargs)
+        self.max_pixels = self.model_config.get("max_pixels", 360 * 420)
+        self.fps = self.model_config.get("fps", 30)
+        self.processor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
+        print(f"Initialized vLLM engine for model: {model_name}")
+
+    
+    def generate_answers(self, prompt: str,video_path: str) -> List[AnswerCandidate]:
+        """Generate answers using vLLM."""
+        from vllm import SamplingParams
+
+
+        if not video_path:
+            raise ValueError("VLLMVQAModel requires a 'video_path'.")
+
+
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "video", 
+                        "video": video_path,
+                        "fps": self.fps,
+                        "max_pixels": self.max_pixels,
+                    },
+                    {"type": "text", "text": prompt}
+                ]
+            }
+        ]
+        text = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        image_inputs, video_inputs, video_kwargs = process_vision_info(messages, return_video_kwargs=True)
+
+        mm_data = {}
+        if image_inputs is not None:
+            mm_data["image"] = image_inputs
+        if video_inputs is not None:
+            mm_data["video"] = video_inputs
+
+        llm_inputs = {
+            "prompt": text,
+            "multi_modal_data": mm_data,
+
+            # FPS will be returned in video_kwargs
+            "mm_processor_kwargs": video_kwargs,
+        }
+
+        # Define sampling parameters
+        sampling_params = SamplingParams(
+            temperature=self.model_config.get("temperature", 0.7),
+            max_tokens=self.model_config.get("max_new_tokens", 64),
+            top_p=0.9,
+        )
+        
+        # Generate answers
+        with torch.no_grad():
+            if self.lora_adapter_path is not None:
+                outputs = self.model.generate([llm_inputs], sampling_params, lora_request=LoRARequest('lora_adapter', 1,self.lora_adapter_path))
+            else:
+                outputs = self.model.generate([llm_inputs], sampling_params)
+            
+
+        
+        return outputs
+ 
+    
+
 class VLLMVQAModel(BaseVQAModel):
     """VQA model implementation specifically for vLLM."""
     
@@ -375,41 +508,70 @@ class VLLMVQAModel(BaseVQAModel):
             except Exception:
                 tokenizer_path = None
         # vLLM engine initialization (pass tokenizer path if available so special tokens are recognized)
+        self.lora_adapter_path = self.model_config.get("lora_adapter_path", None)
+
         llm_kwargs = dict(
             model=model_name,
             trust_remote_code=True,
-            tensor_parallel_size=4
+            tensor_parallel_size=4,
+            enable_lora=True if self.lora_adapter_path is not None else False,
+            max_lora_rank=32 if self.lora_adapter_path is not None else None,
         )
         if tokenizer_path:
             llm_kwargs["tokenizer"] = tokenizer_path
         self.model = LLM(**llm_kwargs)
-        
+        self.max_pixels = self.model_config.get("max_pixels", 360 * 420)
+        self.fps = self.model_config.get("fps", 30)
         # The processor is still needed to format the prompt correctly
         self.processor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
         print(f"Initialized vLLM engine for model: {model_name}")
     
     def generate_answers(self, question: str, frames: Optional[np.ndarray] = None, video_path: Optional[str] = None, 
                        num_answers: int = 10) -> List[AnswerCandidate]:
-        """Generate answers using vLLM.
-        Note: vLLM path currently treats input as text-only; video content is not ingested here.
-        """
+        """Generate answers using vLLM."""
         from vllm import SamplingParams
-        
+        try:
+            transcript = self.audio_model.transcribe(video_path)['text']
+        except Exception:
+            transcript = ""
+
+
         if not video_path:
             raise ValueError("VLLMVQAModel requires a 'video_path'.")
-        
         start_time = time.time()
+        prompt = prompts.PROMPT_LIST[5-1].format(question=question, transcript=transcript)
+
 
         messages = [
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": f"Answer the following question concisely in one sentence: {question}"}
+                    {
+                        "type": "video", 
+                        "video": video_path,
+                        "fps": self.fps,
+                        "max_pixels": self.max_pixels,
+                    },
+                    {"type": "text", "text": prompt}
                 ]
             }
         ]
         text = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        # inputs = self.processor(text=text, videos=[video_data], return_tensors="pt", padding=True)
+        image_inputs, video_inputs, video_kwargs = process_vision_info(messages, return_video_kwargs=True)
+
+        mm_data = {}
+        if image_inputs is not None:
+            mm_data["image"] = image_inputs
+        if video_inputs is not None:
+            mm_data["video"] = video_inputs
+
+        llm_inputs = {
+            "prompt": text,
+            "multi_modal_data": mm_data,
+
+            # FPS will be returned in video_kwargs
+            "mm_processor_kwargs": video_kwargs,
+        }
 
         # Define sampling parameters
         sampling_params = SamplingParams(
@@ -421,7 +583,11 @@ class VLLMVQAModel(BaseVQAModel):
         
         # Generate answers
         with torch.no_grad():
-            outputs = self.model.generate([text], sampling_params)
+            if self.lora_adapter_path is not None:
+                outputs = self.model.generate([llm_inputs], sampling_params, lora_request=LoRARequest('lora_adapter', 1,self.lora_adapter_path))
+            else:
+                outputs = self.model.generate([llm_inputs], sampling_params)
+            
         end_time = time.time()
         generation_time = (end_time - start_time) / len(outputs)
         # Process the outputs
@@ -431,7 +597,8 @@ class VLLMVQAModel(BaseVQAModel):
             answers.append(AnswerCandidate(text=text, confidence=1.0, generation_time=generation_time))
         
         return answers
-    
+
+
     def _extract_frames_from_video(self, video_path: str) -> Optional[np.ndarray]:
         """Extract frames from a video file."""
         cap = cv2.VideoCapture(video_path)
@@ -448,28 +615,35 @@ class VLLMVQAModel(BaseVQAModel):
         return np.array(frames_list)
 
 
+
+class OmniVQAModel(BaseVQAModel):
+    """VQA model implementation specifically for Omni."""
+    def _initialize_model(self):
+        """Initialize the Omni model."""
+        self.model = Qwen2_5OmniForConditionalGeneration.from_pretrained(self.model_config["model_name"])
+        self.tokenizer = Qwen2_5OmniProcessor.from_pretrained(self.model_config["model_name"])
+        self.processor = Qwen2_5OmniProcessor.from_pretrained(self.model_config["model_name"])
+
 # Model factory for easy instantiation
 def create_vqa_model(model_config: Dict[str, Any]) -> BaseVQAModel:
     """Factory function to create VQA models based on configuration."""
     model_name = model_config.get("model_name", "")
-    model_family = model_config.get("family", "huggingface")
     engine = model_config.get("engine", "")
-    
-    # Handle LoRA fine-tuned models
-    if model_family == "lora":
-        from .vqa_model_lora import LoRAQwenVQAModel
-        return LoRAQwenVQAModel(model_config)
-    
-    # Handle vLLM engine
+    if "omni" in model_name.lower():
+        return OmniVQAModel(model_config)
     if engine == "vllm":
-        return VLLMVQAModel(model_config)
+        if model_config.get("type") == "reranker":
+            return RerankerVLLMVQAModel(model_config)
+        else:   
+            return VLLMVQAModel(model_config)
     
-    # Handle Qwen models
     if "qwen" in model_name.lower() and "vl" in model_name.lower():
+        
         return QwenVQAModel(model_config)
     
-    # Handle standard HuggingFace models
+    model_family = model_config.get("family", "huggingface")
     if model_family == "huggingface":
+
         return HuggingFaceVQAModel(model_config)
     else:
         raise ValueError(f"Unsupported model family: {model_family}") 
@@ -487,9 +661,11 @@ if __name__ == "__main__":
         "num_keyframes": 5,
         "temperature": 0.7,
         "max_new_tokens": 64,
+        "fps": 30,
+        "max_pixels": 360 * 420,
     }
     model = create_vqa_model(vllm_config)
     question = "What is the video about?"
 
-    answers = model.generate_answers(question, video_path="./test.mp4", num_answers=10)
+    answers = model.generate_answers(question, video_path="/home/dzhang98/code/2025-VQA-AG/src/ag_task/yoga.mp4", num_answers=10)
     print(answers)

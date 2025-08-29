@@ -197,6 +197,7 @@ def main():
         asr = asr_by_vid.get(str(video_id), "")
 
         prompt = build_prompt(question, asr, candidates)
+
         text_out = rerank_single(
             model,
             processor,
@@ -205,6 +206,7 @@ def main():
             temperature=args.temperature,
             max_new_tokens=args.max_new_tokens,
         )
+        
         ranked = parse_ranked_list(text_out, candidates)
 
         # If parsing incomplete, append missing in original order

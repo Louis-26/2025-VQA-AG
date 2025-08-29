@@ -2,7 +2,8 @@ import os
 import json
 from typing import List, Dict, Any
 from urllib.parse import urlparse, parse_qs
-
+import csv
+import pandas as pd
 def load_json_topics(json_files_dir: str) -> List[Dict[str, Any]]:
     """
     Loads and parses the JSON topics from a directory of JSON files.
@@ -47,7 +48,33 @@ def load_json_topics(json_files_dir: str) -> List[Dict[str, Any]]:
     return topics
 
 
+def load_csv_topics(csv_file: str) -> List[Dict[str, Any]]:
+    """
+    Loads and parses the CSV topics from a file.
 
+    Args:
+        csv_file (str): The path to the CSV file containing topics.
+        prompt_type (int): The type of prompt to use.
 
+    Returns:
+        List[Dict[str, Any]]: A list of dictionaries, where each dictionary 
+                               represents a question with its metadata.
+    """
+    topics = []
+    with open(csv_file, 'r') as f:
+        reader = csv.reader(f)
+        for row in reader:
+            if len(row) == 3:
+                topics.append({
+                    "Q_ID": row[0].strip(),
+                        "Video_ID": row[1].strip(),
+                        "Question": row[2].strip(),
+                    })
+            else:
+                topics.append({
+                    "Q_ID": row[0].strip(),
+                    "Video_ID": row[1].strip(),
+                    "Question": row[2].strip() + ", " + row[3].strip(),
+                })
 
-
+    return topics
