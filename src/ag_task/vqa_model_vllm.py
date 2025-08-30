@@ -14,12 +14,10 @@ import torch
 from dataclasses import dataclass
 import time
 import multiprocessing
-from qwen_vl_utils import process_vision_info
 import src.ag_task.prompt as prompts   
 from vllm.lora.request import LoRARequest
 import argparse
-from transformers import Qwen2_5OmniForConditionalGeneration, Qwen2_5OmniProcessor
-from qwen_omni_utils import process_mm_info
+
 
 @dataclass
 class AnswerCandidate:
@@ -78,6 +76,7 @@ class QwenVQAModel(BaseVQAModel):
     def _initialize_model(self):
         """Initialize the Qwen-VL model."""
         from transformers import AutoTokenizer, AutoProcessor
+        
         # Add reranker tokens so pointer IDs are single tokens
         try:
             from src.reranker.tokens import add_special_tokens_to_tokenizer
@@ -556,6 +555,8 @@ class VLLMVQAModel(BaseVQAModel):
                 ]
             }
         ]
+        from qwen_vl_utils import process_vision_info
+
         text = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         image_inputs, video_inputs, video_kwargs = process_vision_info(messages, return_video_kwargs=True)
 
@@ -619,24 +620,210 @@ class VLLMVQAModel(BaseVQAModel):
 class OmniVQAModel(BaseVQAModel):
     """VQA model implementation specifically for Omni."""
     def _initialize_model(self):
+        from transformers import Qwen2_5OmniForConditionalGeneration, Qwen2_5OmniProcessor
         """Initialize the Omni model."""
-        self.model = Qwen2_5OmniForConditionalGeneration.from_pretrained(self.model_config["model_name"])
-        self.tokenizer = Qwen2_5OmniProcessor.from_pretrained(self.model_config["model_name"])
+        self.model = Qwen2_5OmniForConditionalGeneration.from_pretrained(self.model_config["model_name"],torch_dtype=torch.bfloat16, device_map="auto")
+
         self.processor = Qwen2_5OmniProcessor.from_pretrained(self.model_config["model_name"])
+        self.fps = self.model_config.get("fps", 1)
+        self.max_pixels = self.model_config.get("max_pixels", 360 * 420)
+
+
+    def generate_answers(self, question: str, video_path: str, num_answers: int = 10) -> List[AnswerCandidate]:
+        """Generate answers using Omni."""
+
+        USE_AUDIO_IN_VIDEO = True
+        prompt = prompts.PROMPT3.format(question=question)
+        conversation = [
+            {
+                "role": "system",
+                "content": [
+                    {"type": "text", "text": "You are Qwen, a virtual human developed by the Qwen Team, Alibaba Group, capable of perceiving auditory and visual inputs, as well as generating text and speech."}
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "video", 
+                        "video": video_path,    
+                        "fps": self.fps,
+                        "max_pixels": self.max_pixels
+                    },
+                    {"type": "text", "text": prompt}
+                ],
+            },
+        ]
+
+        from qwen_omni_utils import process_mm_info
+
+        text = self.processor.apply_chat_template(conversation, add_generation_prompt=True, tokenize=False)
+        audios, images, videos = process_mm_info(conversation, use_audio_in_video=USE_AUDIO_IN_VIDEO)
+        inputs = self.processor(text=text, audio=audios, images=images, videos=videos, return_tensors="pt", padding=True, use_audio_in_video=USE_AUDIO_IN_VIDEO).to(self.model.device)
+
+        with torch.no_grad():
+            text_ids, audio = self.model.generate(**inputs, use_audio_in_video=USE_AUDIO_IN_VIDEO)
+
+
+        text = self.processor.batch_decode(text_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True)
+        print(text)
+        return text
+
+
+class VLLMOmniVQAModel(BaseVQAModel):
+    """VQA model implementation specifically for Omni in vLLM."""
+    def _initialize_model(self):
+        """Initialize the Omni model."""
+        from vllm import LLM
+        from transformers import AutoProcessor, AutoTokenizer
+        from tempfile import mkdtemp
+        try:
+            multiprocessing.set_start_method('spawn', force=True)
+        except RuntimeError:
+        # The context might already be set in some environments (e.g., Jupyter).
+            pass
+        
+        model_name = self.model_config["model_name"]
+        print(model_name)
+        # vLLM engine initialization (pass tokenizer path if available so special tokens are recognized)
+        self.lora_adapter_path = self.model_config.get("lora_adapter_path", None)
+
+        llm_kwargs = dict(
+            model=model_name,
+            trust_remote_code=True,
+            tensor_parallel_size=4,
+            limit_mm_per_prompt={"audio": 1, "video": 1},
+            enable_lora=True if self.lora_adapter_path is not None else False,
+            max_lora_rank=32 if self.lora_adapter_path is not None else None,
+        )
+        # if tokenizer_path:
+        #     llm_kwargs["tokenizer"] = tokenizer_path
+        self.model = LLM(**llm_kwargs)
+        self.max_pixels = self.model_config.get("max_pixels", 360 * 420)
+        self.fps = self.model_config.get("fps", 1)
+        # The processor is still needed to format the prompt correctly
+        self.processor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
+        print(f"Initialized vLLM engine for model: {model_name}")
+    
+    def generate_answers(self, question: str, video_path: str, num_answers: int = 10) -> List[AnswerCandidate]:
+        """Generate answers using Omni."""
+        from vllm import SamplingParams
+        try:
+            transcript = self.audio_model.transcribe(video_path)['text']
+        except Exception:
+            transcript = ""
+
+
+        if not video_path:
+            raise ValueError("VLLMVQAModel requires a 'video_path'.")
+        start_time = time.time()
+        prompt = prompts.PROMPT3.format(question=question, transcript=transcript)
+        conversation = [
+            {
+                "role": "system",
+                "content": [
+                    {"type": "text", "text": "You are Qwen, a virtual human developed by the Qwen Team, Alibaba Group, capable of perceiving auditory and visual inputs, as well as generating text and speech."}
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "video", 
+                        "video": video_path,    
+                        "fps": self.fps,
+                        "max_pixels": self.max_pixels
+                    },
+                ],
+            },
+        ]
+        text = (
+        f"<|im_start|>system\nYou are Qwen, a virtual human developed by the Qwen Team, Alibaba Group, capable of perceiving auditory and visual inputs, as well as generating text and speech.<|im_end|>\n"
+        "<|im_start|>user\n<|vision_bos|><|VIDEO|><|vision_eos|>"
+        f"{prompt}<|im_end|>\n"
+        f"<|im_start|>assistant\n"
+    )
+        sampling_params = SamplingParams(
+            temperature=self.model_config.get("temperature", 0.7),
+            max_tokens=self.model_config.get("max_new_tokens", 64),
+            top_p=0.9,
+            n=num_answers,
+        )
+        from qwen_omni_utils import process_mm_info
+        try:
+            USE_AUDIO_IN_VIDEO = True
+            audios, images, videos = process_mm_info(conversation, use_audio_in_video=USE_AUDIO_IN_VIDEO)
+
+        # inputs = self.processor(text=text, audio=audios, images=images, videos=videos, return_tensors="pt", padding=True, use_audio_in_video=USE_AUDIO_IN_VIDEO)
+        # Generate answers
+
+
+            mm_data = {}
+            if images is not None:
+                mm_data["image"] = images
+            if videos is not None:
+                mm_data["video"] = videos
+            if audios is not None:
+                mm_data["audio"] = audios
+            llm_inputs = {
+                "prompt": text,
+                "multi_modal_data": mm_data,
+
+                "mm_processor_kwargs": {
+                    "use_audio_in_video": True,
+                },
+            }
+        except Exception:
+            audios = None
+            mm_data = {}
+            if images is not None:
+                mm_data["image"] = images
+            if videos is not None:
+                mm_data["video"] = videos
+            if audios is not None:
+                mm_data["audio"] = audios
+            llm_inputs = {
+                "prompt": text,
+                "multi_modal_data": mm_data,
+            }
+            
+        with torch.no_grad():
+            if self.lora_adapter_path is not None:
+                outputs = self.model.generate([llm_inputs], sampling_params, lora_request=LoRARequest('lora_adapter', 1,self.lora_adapter_path))
+            else:
+                outputs = self.model.generate([llm_inputs], sampling_params)
+            
+        end_time = time.time()
+        generation_time = (end_time - start_time) / len(outputs)
+        # Process the outputs
+        answers = []
+        for output in outputs[0].outputs:
+            text = output.text
+            answers.append(AnswerCandidate(text=text, confidence=1.0, generation_time=generation_time))
+        
+        return answers
 
 # Model factory for easy instantiation
 def create_vqa_model(model_config: Dict[str, Any]) -> BaseVQAModel:
     """Factory function to create VQA models based on configuration."""
     model_name = model_config.get("model_name", "")
     engine = model_config.get("engine", "")
-    if "omni" in model_name.lower():
-        return OmniVQAModel(model_config)
+
+
     if engine == "vllm":
+        print(model_config)
         if model_config.get("type") == "reranker":
             return RerankerVLLMVQAModel(model_config)
         else:   
-            return VLLMVQAModel(model_config)
+            if "omni" in model_name.lower():
+
+                return VLLMOmniVQAModel(model_config)
+            else:
+                return VLLMVQAModel(model_config)
     
+    if "omni" in model_name.lower():
+        return OmniVQAModel(model_config)
+
     if "qwen" in model_name.lower() and "vl" in model_name.lower():
         
         return QwenVQAModel(model_config)
@@ -656,16 +843,15 @@ if __name__ == "__main__":
         # The context might already be set in some environments (e.g., Jupyter).
         pass
     vllm_config = {
-        "model_name": "Qwen/Qwen2.5-VL-7B-Instruct",
+        "model_name": "Qwen/Qwen2.5-Omni-7B",
         "engine": "vllm",          
-        "num_keyframes": 5,
         "temperature": 0.7,
         "max_new_tokens": 64,
-        "fps": 30,
+        "fps": 1,
         "max_pixels": 360 * 420,
     }
     model = create_vqa_model(vllm_config)
     question = "What is the video about?"
 
-    answers = model.generate_answers(question, video_path="/home/dzhang98/code/2025-VQA-AG/src/ag_task/yoga.mp4", num_answers=10)
+    answers = model.generate_answers(question, video_path="/brtx/603-nvme1/yweng13/VQA/my_train_videos/NjfNx1uhEJE.mp4", num_answers=10)
     print(answers)

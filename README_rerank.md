@@ -14,19 +14,20 @@ This script reranks candidate answers using the reranker model from `vqa_model_v
 ### Basic Reranking
 
 ```bash
-python run_rerank.py \
-    --csv_files_dir /path/to/csv/files \
-    --videos_dir /path/to/videos \
-    --output_file output_reranked.csv
+python run_vqa.py \
+  --model_config qwen_vl_chat_vllm \
+  --videos_dir /brtx/603-nvme1/yweng13/VQA/my_videos \
+  --csv_files_dir '/home/dzhang98/code/2025-VQA-AG/testing.dataset.vqa.2025.csv' \
+  --num_answers 10 \
+  --output submissions/final_results.csv
 ```
-
-### With ASR Transcripts
 
 ```bash
 python run_rerank.py \
     --csv_files_dir ./submissions/final_results.csv \
     --videos_dir /brtx/603-nvme1/yweng13/VQA/my_videos \
-    --output_file ./submissions/output_reranked.csv 
+    --output_file ./submissions/output_reranked.csv \
+    --question_csv ./testing.dataset.vqa.2025.csv
 ```
 
 ## Parameters
